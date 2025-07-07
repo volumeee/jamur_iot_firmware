@@ -49,7 +49,7 @@ bool okButtonPressed = false;
 // =================================================================
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n\n=== Jamur IoT V17.3 Booting... ===");
+    Serial.println("\n\n=== Jamur IoT V19.1 Booting... ===");
 
     init_hardware();
     load_config();

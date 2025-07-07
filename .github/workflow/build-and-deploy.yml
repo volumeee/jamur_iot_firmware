@@ -1,66 +1,62 @@
-# .github/workflows/build-and-deploy.yml
+# .github/workflows/deploy-firmware.yml (Versi Final)
 
 name: Build and Deploy Firmware
 
-# Memicu workflow saat ada push ke branch 'main'
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Checkout kode dari repositori
     - name: Checkout repository
       uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
 
-    # 2. Setup Python (diperlukan oleh PlatformIO)
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
 
-    # 3. Install PlatformIO Core
     - name: Install PlatformIO
       run: pip install -U platformio
 
-    # 4. Build firmware
-    - name: Build project
+    - name: Build PlatformIO Project
       run: pio run
 
-    # 5. Upload firmware.bin ke Supabase Storage
-    - name: Upload to Supabase
+    - name: Get Version Info
+      id: version_info
       run: |
-        # Ambil path firmware.bin
+        VERSION_TAG=$(git describe --tags --abbrev=0)
+        RELEASE_NOTES=$(git log -1 --pretty=%B | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+        FIRMWARE_URL="${{ secrets.SUPABASE_URL }}/storage/v1/object/public/firmware/firmware.bin"
+        echo "version=${VERSION_TAG}" >> $GITHUB_OUTPUT
+        echo "notes=${RELEASE_NOTES}" >> $GITHUB_OUTPUT
+        echo "url=${FIRMWARE_URL}" >> $GITHUB_OUTPUT
+
+    - name: Upload Firmware to Supabase Storage
+      run: |
         FIRMWARE_PATH=$(find .pio/build -name "firmware.bin" | head -n 1)
-        if [ -z "$FIRMWARE_PATH" ]; then
-          echo "firmware.bin not found!"
-          exit 1
-        fi
-        
-        # Upload menggunakan cURL
         curl -X POST \
           -H "apikey: ${{ secrets.SUPABASE_SERVICE_KEY }}" \
           -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
           -H "Content-Type: application/octet-stream" \
+          -H "x-upsert: true" \
           --data-binary "@$FIRMWARE_PATH" \
-          "${{ secrets.SUPABASE_URL }}/storage/v1/object/firmware/firmware.bin"
-
-    # 6. Memicu notifikasi (memanggil Supabase Edge Function)
-    - name: Trigger Notification
+          "${{ steps.version_info.outputs.url }}"
+    
+    - name: Insert Version Record into Supabase Database
       run: |
-        # Ambil versi dan catatan dari pesan commit terakhir
-        VERSION_TAG=$(git describe --tags --abbrev=0)
-        RELEASE_NOTES=$(git log -1 --pretty=%B)
-
-        # Kirim data ke Supabase Edge Function
         curl -X POST \
-          "${{ secrets.SUPABASE_URL }}/functions/v1/notify-new-firmware" \
+          "${{ secrets.SUPABASE_URL }}/rest/v1/firmware_versions" \
+          -H "apikey: ${{ secrets.SUPABASE_SERVICE_KEY }}" \
           -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
           -H "Content-Type: application/json" \
           -d '{
-                "version": "'"$VERSION_TAG"'",
-                "release_notes": "'"$RELEASE_NOTES"'"
+                "version": "${{ steps.version_info.outputs.version }}",
+                "release_notes": "${{ steps.version_info.outputs.notes }}",
+                "file_url": "${{ steps.version_info.outputs.url }}"
               }'
