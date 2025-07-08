@@ -6,7 +6,7 @@
 // ==      FILE KONFIGURASI PROYEK JAMUR IOT               ==
 // ==========================================================
 
-#define FIRMWARE_VERSION "v23"
+#define FIRMWARE_VERSION "v23.1"
 
 // --- KONFIGURASI PERANGKAT KERAS LOKAL (Layar & Tombol) ---
 #define LCD_ADDRESS 0x27
@@ -99,3 +99,8 @@ const int LOGIC_CHECK_INTERVAL_MS = 5000;
 const int WIFI_SIGNAL_PUBLISH_INTERVAL_MS = 60000;
 const int DEBOUNCE_DELAY_MS = 50;
 const int LONG_PRESS_MS = 1500;
+
+// --- NOTIFICATION INTERVAL & RETRY  ---
+const int NOTIF_PERIODIC_INTERVAL_MS = 60000; // 1 menit
+const int NOTIF_RETRY_COUNT = 3;
+const int NOTIF_RETRY_DELAY_MS = 500;

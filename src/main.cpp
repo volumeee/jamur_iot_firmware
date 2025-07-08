@@ -44,6 +44,33 @@ bool okButtonLongPress = false;
 bool isWarningZone = false;
 bool okButtonPressed = false;
 
+unsigned long lastPeriodicNotifTime = 0;
+
+// Helper function: publish MQTT dengan retry
+bool publish_with_retry(const char* topic, const char* payload, bool retained = false, int retry = NOTIF_RETRY_COUNT, int delayMs = NOTIF_RETRY_DELAY_MS) {
+    for (int i = 0; i < retry; ++i) {
+        if (mqttClient.publish(topic, payload, retained)) {
+            return true;
+        }
+        delay(delayMs);
+    }
+    return false;
+}
+
+// Helper function: kirim notifikasi dengan format JSON
+void send_notification(const char* type, const char* message, float humidity = -1, float temperature = -1) {
+    char notifPayload[256];
+    if (humidity >= 0 && temperature >= 0) {
+        snprintf(notifPayload, sizeof(notifPayload),
+            "{\"type\":\"%s\", \"message\":\"%s\", \"humidity\":%.1f, \"temperature\":%.1f}",
+            type, message, humidity, temperature);
+    } else {
+        snprintf(notifPayload, sizeof(notifPayload),
+            "{\"type\":\"%s\", \"message\":\"%s\"}", type, message);
+    }
+    publish_with_retry(TOPICS.notification, notifPayload);
+}
+
 // =================================================================
 //   FUNGSI SETUP UTAMA
 // =================================================================
@@ -274,6 +301,13 @@ void handle_main_logic() {
     if (isPumpOn && millis() >= pumpStopTime) {
         turn_pump_off();
     }
+    // Notifikasi periodik setiap 1 menit
+    if (millis() - lastPeriodicNotifTime >= NOTIF_PERIODIC_INTERVAL_MS) {
+        lastPeriodicNotifTime = millis();
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Periodic status: H=%.1f%%, T=%.1fC, Pump=%s", currentHumidity, currentTemperature, isPumpOn ? "ON" : "OFF");
+        send_notification("info", msg, currentHumidity, currentTemperature);
+    }
 }
 
 void display_boot_screen() {
@@ -488,22 +522,12 @@ void publish_firmware_status(const char* status) {
 // --- Logika Kontrol & Aksi ---
 void run_humidity_control_logic(float humidity) {
     if (humidity < config.humidity_critical) {
-        if (!isPumpOn) turn_pump_on("otomatis_kritis");
-        isWarningZone = false;
+        turn_pump_on("auto_critical");
+        send_notification("warning", "Humidity below critical threshold! Pump turned ON.", humidity, currentTemperature);
     } else if (humidity < config.humidity_warning) {
-        if (!isWarningZone) {
-            char msg[200];
-            snprintf(msg, sizeof(msg), "{\"type\":\"warning\", \"message\":\"HATI-HATI: Kelembapan mendekati batas bawah (%.1f%%).\"}", humidity);
-            mqttClient.publish(TOPICS.notification, msg);
-            isWarningZone = true;
-        }
+        send_notification("warning", "Warning: Humidity approaching lower limit.", humidity, currentTemperature);
     } else {
-        if (isWarningZone) {
-            isWarningZone = false;
-            char msg[200];
-            snprintf(msg, sizeof(msg), "{\"type\":\"info\", \"message\":\"Kelembapan kembali normal (%.1f%%).\"}", humidity);
-            mqttClient.publish(TOPICS.notification, msg);
-        }
+        send_notification("info", "Humidity back to normal.", humidity, currentTemperature);
     }
 }
 
@@ -515,11 +539,12 @@ void run_scheduled_control(float humidity) {
         for (int i = 0; i < config.schedule_count; i++) {
             if (currentHour == config.schedule_hours[i]) {
                 if (humidity >= config.humidity_critical) {
-                    turn_pump_on("terjadwal");
+                    turn_pump_on("scheduled");
+                    send_notification("info", "Scheduled watering executed.", humidity, currentTemperature);
                 } else {
-                    char msg[200];
-                    snprintf(msg, sizeof(msg), "{\"type\":\"info\", \"message\":\"Jadwal jam %d:00 dilewati, kondisi kritis (%.1f%%).\"}", currentHour, humidity);
-                    mqttClient.publish(TOPICS.notification, msg);
+                    char msg[128];
+                    snprintf(msg, sizeof(msg), "Scheduled watering at %d:00 skipped, humidity critical (%.1f%%).", currentHour, humidity);
+                    send_notification("info", msg, humidity, currentTemperature);
                 }
                 lastScheduledHour = currentHour;
                 break;
@@ -534,9 +559,9 @@ void turn_pump_on(const char* reason) {
     pumpStopTime = millis() + PUMP_DURATION_MS;
     digitalWrite(PUMP_RELAY_PIN, HIGH);
     mqttClient.publish(TOPICS.status, "{\"state\":\"pumping\"}");
-    char notifPayload[200];
-    snprintf(notifPayload, sizeof(notifPayload), "{\"type\":\"info\", \"message\":\"Pompa dinyalakan (%s).\", \"humidity\":%.1f, \"temperature\":%.1f}", reason, currentHumidity, currentTemperature);
-    mqttClient.publish(TOPICS.notification, notifPayload);
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Pump turned ON (%s).", reason);
+    send_notification("info", msg, currentHumidity, currentTemperature);
 }
 
 void turn_pump_off() {
@@ -544,14 +569,12 @@ void turn_pump_off() {
     isPumpOn = false;
     digitalWrite(PUMP_RELAY_PIN, LOW);
     mqttClient.publish(TOPICS.status, "{\"state\":\"idle\"}");
-    char notifPayload[200];
-    snprintf(notifPayload, sizeof(notifPayload), "{\"type\":\"info\", \"message\":\"Pompa telah berhenti.\", \"humidity\":%.1f, \"temperature\":%.1f}", currentHumidity, currentTemperature);
-    mqttClient.publish(TOPICS.notification, notifPayload);
+    send_notification("info", "Pump turned OFF.", currentHumidity, currentTemperature);
 }
 
 // --- Fungsi OTA Update ---
 void perform_ota_update(String url) {
-    Serial.printf("Menerima perintah OTA Update. URL: %s\n", url.c_str());
+    Serial.printf("Received OTA Update command. URL: %s\n", url.c_str());
     currentState = STATE_UPDATING;
 
     publish_firmware_status("updating");
@@ -573,43 +596,45 @@ void perform_ota_update(String url) {
                 WiFiClient& stream = http.getStream();
                 size_t written = Update.writeStream(stream);
                 if (written == contentLength) {
-                    Serial.println("Download firmware berhasil.");
+                    Serial.println("Firmware download successful.");
                 } else {
-                    Serial.printf("Download firmware gagal, ukuran tidak cocok. Tertulis: %d, Seharusnya: %d\n", written, contentLength);
+                    Serial.printf("Firmware download failed, size mismatch. Written: %d, Expected: %d\n", written, contentLength);
                 }
                 if (Update.end()) {
                     if (Update.isFinished()) {
-                        Serial.println("Update berhasil! Me-restart...");
+                        Serial.println("Update successful! Restarting...");
                         lcd.clear();
-                        lcd.print("Update Sukses!");
+                        lcd.print("Update Success!");
                         lcd.setCursor(0, 1);
                         lcd.print("Restarting...");
                         publish_firmware_status("updated");
+                        send_notification("info", "Firmware updated successfully.");
                         delay(2000);
                         ESP.restart();
                     } else {
-                        Serial.println("Gagal menyelesaikan update.");
+                        Serial.println("Failed to finish update.");
                     }
                 } else {
-                    Serial.printf("Error OTA: #%u\n", Update.getError());
+                    Serial.printf("OTA Error: #%u\n", Update.getError());
                 }
             } else {
-                Serial.println("Memori tidak cukup untuk memulai OTA.");
+                Serial.println("Not enough memory for OTA.");
             }
         } else {
-            Serial.println("Ukuran konten tidak diketahui.");
+            Serial.println("Unknown content length.");
         }
     } else {
-        Serial.printf("HTTP GET gagal, kode error: %d\n", httpCode);
+        Serial.printf("HTTP GET failed, error code: %d\n", httpCode);
     }
     http.end();
 
-    // Jika sampai di sini, berarti update gagal
+    // If reached here, update failed
     lcd.clear();
-    lcd.print("Update Gagal!");
+    lcd.print("Update Failed!");
     lcd.setCursor(0, 1);
-    lcd.print("Cek Serial Mon.");
+    lcd.print("Check Serial Mon.");
     publish_firmware_status("failed");
+    send_notification("error", "Firmware update failed.");
     delay(5000);
     currentState = STATE_NORMAL_OPERATION;
 }
