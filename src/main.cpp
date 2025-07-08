@@ -470,6 +470,20 @@ void publish_current_version() {
     Serial.printf("Versi firmware saat ini (%s) dipublikasikan.\n", FIRMWARE_VERSION);
 }
 
+// --- Fungsi Publish Status Firmware ---
+/**
+ * @brief Publish status update firmware ke MQTT.
+ * @param status Status update: "updating", "updated", atau "failed"
+ */
+void publish_firmware_status(const char* status) {
+    JsonDocument doc;
+    doc["status"] = status;
+    doc["version"] = FIRMWARE_VERSION;
+    char payload[64];
+    serializeJson(doc, payload);
+    mqttClient.publish(TOPICS.firmware_current, payload, true);
+}
+
 
 // --- Logika Kontrol & Aksi ---
 void run_humidity_control_logic(float humidity) {
@@ -540,6 +554,8 @@ void perform_ota_update(String url) {
     Serial.printf("Menerima perintah OTA Update. URL: %s\n", url.c_str());
     currentState = STATE_UPDATING;
 
+    publish_firmware_status("updating");
+
     lcd.clear();
     lcd.print("Firmware Update");
     lcd.setCursor(0, 1);
@@ -568,6 +584,7 @@ void perform_ota_update(String url) {
                         lcd.print("Update Sukses!");
                         lcd.setCursor(0, 1);
                         lcd.print("Restarting...");
+                        publish_firmware_status("updated");
                         delay(2000);
                         ESP.restart();
                     } else {
@@ -586,12 +603,13 @@ void perform_ota_update(String url) {
         Serial.printf("HTTP GET gagal, kode error: %d\n", httpCode);
     }
     http.end();
-    
+
     // Jika sampai di sini, berarti update gagal
     lcd.clear();
     lcd.print("Update Gagal!");
     lcd.setCursor(0, 1);
     lcd.print("Cek Serial Mon.");
+    publish_firmware_status("failed");
     delay(5000);
     currentState = STATE_NORMAL_OPERATION;
 }

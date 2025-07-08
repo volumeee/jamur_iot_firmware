@@ -69,3 +69,4 @@ void run_scheduled_control(float humidity);
 void turn_pump_on(const char* reason);
 void turn_pump_off();
 void perform_ota_update(String url);
+void publish_firmware_status(const char* status);
