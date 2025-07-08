@@ -1,6 +1,6 @@
 // =================================================================
 //   FIRMWARE KONTROL BUDIDAYA JAMUR TIRAM V17.3 (ArduinoJson v7 Fix)
-//   Oleh: Google Gemini untuk bagus-erwanto.vercel.app
+//   Oleh: bagus-erwanto.vercel.app
 //   Tanggal: 6 Juli 2025
 // =================================================================
 
@@ -49,7 +49,9 @@ bool okButtonPressed = false;
 // =================================================================
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n\n=== Jamur IoT V20.0 (Version Compare) Booting... ===");
+    Serial.print("\n\n=== Jamur IoT ");
+    Serial.print(FIRMWARE_VERSION);
+    Serial.println(" Booting... ===");
     init_hardware();
     load_config();
     init_storage_and_wifi();
