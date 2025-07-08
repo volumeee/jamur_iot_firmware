@@ -35,7 +35,7 @@ jobs:
         # Membaca baris yang berisi FIRMWARE_VERSION dan mengekstrak nilainya
         FIRMWARE_VERSION=$(grep '#define FIRMWARE_VERSION' include/config.h | sed -e 's/.*"\(.*\)".*/\1/')
         RELEASE_NOTES=$(git log -1 --pretty=%B | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-        FIRMWARE_URL="${{ secrets.SUPABASE_URL }}/storage/v1/object/public/firmware/firmware.bin"
+        FIRMWARE_URL="${{ secrets.SUPABASE_URL }}/storage/v1/object/firmware/firmware.bin"
         
         echo "version=${FIRMWARE_VERSION}" >> $GITHUB_OUTPUT
         echo "notes=${RELEASE_NOTES}" >> $GITHUB_OUTPUT
