@@ -104,3 +104,4 @@ const int LONG_PRESS_MS = 1500;
 const int NOTIF_PERIODIC_INTERVAL_MS = 60000; // 1 menit
 const int NOTIF_RETRY_COUNT = 3;
 const int NOTIF_RETRY_DELAY_MS = 500;
+const unsigned long MQTT_RETRY_INTERVAL = 5000; // 5 detik

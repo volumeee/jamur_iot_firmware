@@ -43,8 +43,9 @@ unsigned long btnOkPressTime = 0;
 bool okButtonLongPress = false;
 bool isWarningZone = false;
 bool okButtonPressed = false;
-
 unsigned long lastPeriodicNotifTime = 0;
+unsigned long lastOkDebounceTime = 0;
+unsigned long lastMqttRetryTime = 0;
 
 // Tambahkan enum dan variabel untuk status notifikasi terakhir
 enum NotifState { NOTIF_NORMAL, NOTIF_WARNING, NOTIF_CRITICAL };
@@ -247,7 +248,25 @@ void handle_connecting_state() {
 }
 
 void handle_normal_operation() {
-    if (!mqttClient.connected()) reconnect_mqtt();
+    if (!mqttClient.connected() && millis() - lastMqttRetryTime > MQTT_RETRY_INTERVAL) {
+        lastMqttRetryTime = millis();
+        Serial.print("Mencoba koneksi MQTT (aman)...");
+        if (mqttClient.connect(mqttClientId, MQTT_USER, MQTT_PASSWORD, TOPICS.status, 1, true, "{\"state\":\"offline\"}")) {
+            Serial.println("terhubung!");
+            mqttClient.publish(TOPICS.status, "{\"state\":\"online\"}");
+            mqttClient.subscribe(TOPICS.pump_control);
+            mqttClient.subscribe(TOPICS.config_set);
+            mqttClient.subscribe(TOPICS.system_update);
+            publish_config();
+            publish_current_version();
+            Serial.println("Berlangganan topik MQTT berhasil.");
+        } else {
+            Serial.printf("gagal, rc=%d. ", mqttClient.state());
+            char error_buf[100];
+            espClient.lastError(error_buf, sizeof(error_buf));
+            Serial.printf("Keterangan: %s\n", error_buf);
+        }
+    }
     mqttClient.loop();
     handle_main_logic();
     display_normal_info();
