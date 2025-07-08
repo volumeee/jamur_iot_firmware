@@ -103,6 +103,9 @@ public:
 };
 ConfigStorage configStorage;
 
+// Prototype fungsi helper
+void try_reconnect_mqtt();
+
 // =================================================================
 //   FUNGSI SETUP UTAMA
 // =================================================================
