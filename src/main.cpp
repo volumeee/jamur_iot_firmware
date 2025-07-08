@@ -46,6 +46,10 @@ bool okButtonPressed = false;
 
 unsigned long lastPeriodicNotifTime = 0;
 
+// Tambahkan enum dan variabel untuk status notifikasi terakhir
+enum NotifState { NOTIF_NORMAL, NOTIF_WARNING, NOTIF_CRITICAL };
+NotifState lastNotifState = NOTIF_NORMAL;
+
 // Helper function: publish MQTT dengan retry
 bool publish_with_retry(const char* topic, const char* payload, bool retained = false, int retry = NOTIF_RETRY_COUNT, int delayMs = NOTIF_RETRY_DELAY_MS) {
     for (int i = 0; i < retry; ++i) {
@@ -70,6 +74,33 @@ void send_notification(const char* type, const char* message, float humidity = -
     }
     publish_with_retry(TOPICS.notification, notifPayload);
 }
+
+// Helper class untuk Preferences (ConfigStorage)
+class ConfigStorage {
+public:
+    void load(DeviceConfig& cfg) {
+        Preferences prefs;
+        prefs.begin("jamur-config", true);
+        cfg.humidity_critical = prefs.getFloat("h_crit", 80.0);
+        cfg.humidity_warning = prefs.getFloat("h_warn", 85.0);
+        cfg.schedule_count = prefs.getBytes("schedules", cfg.schedule_hours, sizeof(cfg.schedule_hours)) / sizeof(int);
+        if (cfg.schedule_count == 0) {
+            int default_schedule[] = {7, 12, 17};
+            memcpy(cfg.schedule_hours, default_schedule, sizeof(default_schedule));
+            cfg.schedule_count = sizeof(default_schedule) / sizeof(int);
+        }
+        prefs.end();
+    }
+    void save(const DeviceConfig& cfg) {
+        Preferences prefs;
+        prefs.begin("jamur-config", false);
+        prefs.putFloat("h_crit", cfg.humidity_critical);
+        prefs.putFloat("h_warn", cfg.humidity_warning);
+        prefs.putBytes("schedules", cfg.schedule_hours, sizeof(int) * cfg.schedule_count);
+        prefs.end();
+    }
+};
+ConfigStorage configStorage;
 
 // =================================================================
 //   FUNGSI SETUP UTAMA
@@ -97,7 +128,7 @@ void loop() {
             handle_connecting_state();
             break;
         case STATE_NORMAL_OPERATION:
-            if (!mqttClient.connected()) reconnect_mqtt();
+            try_reconnect_mqtt();
             mqttClient.loop();
             handle_main_logic();
             display_normal_info();
@@ -137,27 +168,13 @@ void init_hardware() {
 
 void load_config() {
     Serial.println("Memuat konfigurasi...");
-    preferences.begin("jamur-config", true);
-    config.humidity_critical = preferences.getFloat("h_crit", 80.0);
-    config.humidity_warning = preferences.getFloat("h_warn", 85.0);
-    config.schedule_count = preferences.getBytes("schedules", config.schedule_hours, sizeof(config.schedule_hours)) / sizeof(int);
-    if (config.schedule_count == 0) {
-        Serial.println("Tidak ada jadwal tersimpan, menggunakan default.");
-        int default_schedule[] = {7, 12, 17};
-        memcpy(config.schedule_hours, default_schedule, sizeof(default_schedule));
-        config.schedule_count = sizeof(default_schedule) / sizeof(int);
-    }
-    preferences.end();
+    configStorage.load(config);
     Serial.println("Konfigurasi dimuat.");
 }
 
 void save_config() {
     Serial.println("Menyimpan konfigurasi...");
-    preferences.begin("jamur-config", false);
-    preferences.putFloat("h_crit", config.humidity_critical);
-    preferences.putFloat("h_warn", config.humidity_warning);
-    preferences.putBytes("schedules", config.schedule_hours, sizeof(int) * config.schedule_count);
-    preferences.end();
+    configStorage.save(config);
     Serial.println("Konfigurasi tersimpan.");
 }
 
@@ -267,20 +284,29 @@ void handle_web_root() {
 void handle_web_save() {
     String new_ssid = server.arg("ssid");
     String new_pass = server.arg("pass");
-    if (new_ssid.length() > 0) {
-        lcd.clear();
-        lcd.print("Menyimpan Data..");
-        preferences.begin("jamur-app", false);
-        preferences.putString("wifi_ssid", new_ssid);
-        preferences.putString("wifi_pass", new_pass);
-        preferences.end();
-        Serial.printf("Kredensial baru disimpan: SSID=%s\n", new_ssid.c_str());
-        server.send(200, "text/html", "<h1>Data Tersimpan!</h1><p>Perangkat akan restart dalam 5 detik...</p>");
-        delay(5000);
-        ESP.restart();
-    } else {
+    if (new_ssid.length() == 0) {
         server.send(400, "text/html", "<h1>Gagal!</h1><p>SSID tidak boleh kosong.</p>");
+        return;
     }
+    if (new_ssid.length() > 32) {
+        server.send(400, "text/html", "<h1>Gagal!</h1><p>SSID terlalu panjang (maks 32 karakter).</p>");
+        return;
+    }
+    if (new_pass.length() > 64) {
+        server.send(400, "text/html", "<h1>Gagal!</h1><p>Password terlalu panjang (maks 64 karakter).</p>");
+        return;
+    }
+    lcd.clear();
+    lcd.print("Menyimpan Data..");
+    Preferences prefs;
+    prefs.begin("jamur-app", false);
+    prefs.putString("wifi_ssid", new_ssid);
+    prefs.putString("wifi_pass", new_pass);
+    prefs.end();
+    Serial.printf("Kredensial baru disimpan: SSID=%s\n", new_ssid.c_str());
+    server.send(200, "text/html", "<h1>Data Tersimpan!</h1><p>Perangkat akan restart dalam 5 detik...</p>");
+    delay(5000);
+    ESP.restart();
 }
 
 // --- Logika Utama & Tampilan ---
@@ -362,13 +388,16 @@ void display_menu_info() {
 // --- Input Tombol ---
 void check_buttons() {
     if (digitalRead(BTN_OK_PIN) == LOW) {
-        if (btnOkPressTime == 0) {
-            btnOkPressTime = millis();
-        } else if (millis() - btnOkPressTime > LONG_PRESS_MS && !okButtonLongPress) {
-            Serial.println("Tombol OK ditekan lama -> Siram Manual");
-            turn_pump_on("manual_fisik");
-            okButtonLongPress = true;
+        if (millis() - lastOkDebounceTime > DEBOUNCE_DELAY_MS) {
+            if (btnOkPressTime == 0) {
+                btnOkPressTime = millis();
+            } else if (millis() - btnOkPressTime > LONG_PRESS_MS && !okButtonLongPress) {
+                Serial.println("Tombol OK ditekan lama -> Siram Manual");
+                turn_pump_on("manual_fisik");
+                okButtonLongPress = true;
+            }
         }
+        lastOkDebounceTime = millis();
     } else {
         if (btnOkPressTime > 0 && !okButtonLongPress) {
             Serial.println("Tombol OK ditekan singkat -> Buka Menu");
@@ -394,8 +423,10 @@ void check_buttons() {
 }
 
 // --- MQTT & Komunikasi ---
-void reconnect_mqtt() {
-    while (!mqttClient.connected()) {
+// Non-blocking MQTT reconnect
+void try_reconnect_mqtt() {
+    if (!mqttClient.connected() && millis() - lastMqttRetryTime > MQTT_RETRY_INTERVAL) {
+        lastMqttRetryTime = millis();
         Serial.print("Mencoba koneksi MQTT (aman)...");
         if (mqttClient.connect(mqttClientId, MQTT_USER, MQTT_PASSWORD, TOPICS.status, 1, true, "{\"state\":\"offline\"}")) {
             Serial.println("terhubung!");
@@ -408,13 +439,9 @@ void reconnect_mqtt() {
             Serial.println("Berlangganan topik MQTT berhasil.");
         } else {
             Serial.printf("gagal, rc=%d. ", mqttClient.state());
-            // Mencetak detail error dari lapisan SSL/TLS
             char error_buf[100];
             espClient.lastError(error_buf, sizeof(error_buf));
             Serial.printf("Keterangan: %s\n", error_buf);
-
-            Serial.println("Coba lagi dalam 5 detik...");
-            delay(5000);
         }
     }
 }
@@ -439,27 +466,27 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 }
 
 void handle_config_update(byte* payload, unsigned int length) {
-    // <<< PERBAIKAN ARDUINOJSON V7 >>>
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, payload, length);
-
     if (error) {
         Serial.printf("deserializeJson() gagal: %s\n", error.c_str());
         return;
     }
     Serial.println("Menerima pembaruan konfigurasi dari MQTT.");
-    
-    // Gunakan sintaks baru untuk mendapatkan nilai dengan default
     config.humidity_critical = doc["h_crit"] | config.humidity_critical;
     config.humidity_warning = doc["h_warn"] | config.humidity_warning;
-
-    // Gunakan sintaks baru untuk mengecek keberadaan kunci
     if (doc["schedules"].is<JsonArray>()) {
         JsonArray newSchedules = doc["schedules"].as<JsonArray>();
-        config.schedule_count = newSchedules.size() < 5 ? newSchedules.size() : 5;
-        for(int i=0; i < config.schedule_count; i++) {
-            config.schedule_hours[i] = newSchedules[i];
+        int validCount = 0;
+        for (int i = 0; i < newSchedules.size() && validCount < 5; i++) {
+            int jam = newSchedules[i];
+            if (jam >= 0 && jam <= 23) {
+                config.schedule_hours[validCount++] = jam;
+            } else {
+                Serial.printf("Jadwal jam tidak valid: %d (abaikan)\n", jam);
+            }
         }
+        config.schedule_count = validCount;
     }
     save_config();
     publish_config();
@@ -523,11 +550,20 @@ void publish_firmware_status(const char* status) {
 void run_humidity_control_logic(float humidity) {
     if (humidity < config.humidity_critical) {
         turn_pump_on("auto_critical");
-        send_notification("warning", "Humidity below critical threshold! Pump turned ON.", humidity, currentTemperature);
+        if (lastNotifState != NOTIF_CRITICAL) {
+            send_notification("warning", "Humidity below critical threshold! Pump turned ON.", humidity, currentTemperature);
+            lastNotifState = NOTIF_CRITICAL;
+        }
     } else if (humidity < config.humidity_warning) {
-        send_notification("warning", "Warning: Humidity approaching lower limit.", humidity, currentTemperature);
+        if (lastNotifState != NOTIF_WARNING) {
+            send_notification("warning", "Warning: Humidity approaching lower limit.", humidity, currentTemperature);
+            lastNotifState = NOTIF_WARNING;
+        }
     } else {
-        send_notification("info", "Humidity back to normal.", humidity, currentTemperature);
+        if (lastNotifState != NOTIF_NORMAL) {
+            send_notification("info", "Humidity back to normal.", humidity, currentTemperature);
+            lastNotifState = NOTIF_NORMAL;
+        }
     }
 }
 
@@ -576,21 +612,27 @@ void turn_pump_off() {
 void perform_ota_update(String url) {
     Serial.printf("Received OTA Update command. URL: %s\n", url.c_str());
     currentState = STATE_UPDATING;
-
     publish_firmware_status("updating");
-
     lcd.clear();
     lcd.print("Firmware Update");
     lcd.setCursor(0, 1);
     lcd.print("Downloading...");
-
     HTTPClient http;
     http.begin(url);
     int httpCode = http.GET();
-
     if (httpCode == HTTP_CODE_OK) {
         int contentLength = http.getSize();
         if (contentLength > 0) {
+            if ((uint32_t)ESP.getFreeSketchSpace() < (uint32_t)contentLength) {
+                Serial.println("Not enough free space for OTA update.");
+                lcd.clear();
+                lcd.print("OTA: No space!");
+                send_notification("error", "OTA update failed: not enough space.");
+                http.end();
+                delay(5000);
+                currentState = STATE_NORMAL_OPERATION;
+                return;
+            }
             bool canBegin = Update.begin(contentLength);
             if (canBegin) {
                 WiFiClient& stream = http.getStream();
@@ -627,8 +669,6 @@ void perform_ota_update(String url) {
         Serial.printf("HTTP GET failed, error code: %d\n", httpCode);
     }
     http.end();
-
-    // If reached here, update failed
     lcd.clear();
     lcd.print("Update Failed!");
     lcd.setCursor(0, 1);
