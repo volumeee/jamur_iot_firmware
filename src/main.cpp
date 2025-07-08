@@ -49,8 +49,7 @@ bool okButtonPressed = false;
 // =================================================================
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n\n=== Jamur IoT V21 Booting.. ===");
-
+    Serial.println("\n\n=== Jamur IoT V20.0 (Version Compare) Booting... ===");
     init_hardware();
     load_config();
     init_storage_and_wifi();
@@ -369,6 +368,8 @@ void reconnect_mqtt() {
             mqttClient.subscribe(TOPICS.config_set);
             mqttClient.subscribe(TOPICS.system_update);
             publish_config();
+            publish_current_version();
+            Serial.println("Berlangganan topik MQTT berhasil.");
         } else {
             Serial.printf("gagal, rc=%d. ", mqttClient.state());
             // Mencetak detail error dari lapisan SSL/TLS
@@ -442,23 +443,31 @@ void publish_wifi_signal() {
 }
 
 void publish_config() {
-    // <<< PERBAIKAN ARDUINOJSON V7 >>>
-    JsonDocument doc; // Otomatis mengelola memori
-    
+    JsonDocument doc;
     doc["h_crit"] = config.humidity_critical;
     doc["h_warn"] = config.humidity_warning;
-    
-    // Gunakan sintaks baru untuk membuat array
     JsonArray schedules = doc["schedules"].to<JsonArray>();
     for (int i = 0; i < config.schedule_count; i++) {
         schedules.add(config.schedule_hours[i]);
     }
-
     char buffer[256];
     serializeJson(doc, buffer);
     mqttClient.publish(TOPICS.config_get, buffer, true);
-    Serial.println("Konfigurasi saat ini dipublikasikan ke MQTT.");
 }
+
+/**
+ * @brief Mempublikasikan versi firmware saat ini ke MQTT.
+ */
+void publish_current_version() {
+    JsonDocument doc;
+    doc["version"] = FIRMWARE_VERSION;
+    char payload[50];
+    serializeJson(doc, payload);
+    // Kirim dengan flag retained agar frontend selalu tahu versi terakhir
+    mqttClient.publish(TOPICS.firmware_current, payload, true); 
+    Serial.printf("Versi firmware saat ini (%s) dipublikasikan.\n", FIRMWARE_VERSION);
+}
+
 
 // --- Logika Kontrol & Aksi ---
 void run_humidity_control_logic(float humidity) {

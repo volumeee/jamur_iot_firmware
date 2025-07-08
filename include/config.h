@@ -6,6 +6,8 @@
 // ==      FILE KONFIGURASI PROYEK JAMUR IOT               ==
 // ==========================================================
 
+#define FIRMWARE_VERSION "v20.0" 
+
 // --- KONFIGURASI PERANGKAT KERAS LOKAL (Layar & Tombol) ---
 #define LCD_ADDRESS 0x27
 #define LCD_COLS 16
@@ -81,6 +83,8 @@ struct MqttTopics {
     const char* config_set = "jamur/config/set";
     const char* wifi_signal = "jamur/wifi_signal";
     const char* system_update = "jamur/system/update";
+    const char* firmware_current = "jamur/firmware/current"; 
+    const char* firmware_new = "jamur/firmware/new_available";
 };
 const MqttTopics TOPICS; 
 

@@ -1,7 +1,8 @@
-# .github/workflows/deploy-firmware.yml (Versi Final)
+# .github/workflows/deploy-firmware.yml
 
 name: Build and Deploy Firmware
 
+# Memicu workflow saat ada push ke branch 'main'
 on:
   push:
     branches: [ "main" ]
@@ -11,32 +12,38 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # Langkah 1: Checkout kode
     - name: Checkout repository
       uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
 
+    # Langkah 2 & 3: Setup PlatformIO (tidak berubah)
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
-
     - name: Install PlatformIO
       run: pip install -U platformio
 
+    # Langkah 4: Build firmware (tidak berubah)
     - name: Build PlatformIO Project
       run: pio run
 
-    - name: Get Version Info
+    # Langkah 5: Dapatkan informasi versi dari file config.h
+    - name: Get Version Info from config.h
       id: version_info
       run: |
-        VERSION_TAG=$(git describe --tags --abbrev=0)
+        # Membaca baris yang berisi FIRMWARE_VERSION dan mengekstrak nilainya
+        FIRMWARE_VERSION=$(grep '#define FIRMWARE_VERSION' include/config.h | sed -e 's/.*"\(.*\)".*/\1/')
         RELEASE_NOTES=$(git log -1 --pretty=%B | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-        FIRMWARE_URL="${{ secrets.SUPABASE_URL }}/storage/v1/object/firmware/firmware.bin"
-        echo "version=${VERSION_TAG}" >> $GITHUB_OUTPUT
+        FIRMWARE_URL="${{ secrets.SUPABASE_URL }}/storage/v1/object/public/firmware/firmware.bin"
+        
+        echo "version=${FIRMWARE_VERSION}" >> $GITHUB_OUTPUT
         echo "notes=${RELEASE_NOTES}" >> $GITHUB_OUTPUT
         echo "url=${FIRMWARE_URL}" >> $GITHUB_OUTPUT
+        
+        echo "Firmware version found: ${FIRMWARE_VERSION}"
 
+    # Langkah 6: Upload firmware.bin ke Supabase (tidak berubah)
     - name: Upload Firmware to Supabase Storage
       run: |
         FIRMWARE_PATH=$(find .pio/build -name "firmware.bin" | head -n 1)
@@ -48,6 +55,7 @@ jobs:
           --data-binary "@$FIRMWARE_PATH" \
           "${{ steps.version_info.outputs.url }}"
     
+    # Langkah 7: Masukkan entri baru ke tabel database (tidak berubah)
     - name: Insert Version Record into Supabase Database
       run: |
         curl -X POST \
