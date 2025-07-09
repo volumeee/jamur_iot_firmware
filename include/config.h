@@ -6,7 +6,7 @@
 // ==      FILE KONFIGURASI PROYEK JAMUR IOT               ==
 // ==========================================================
 
-#define FIRMWARE_VERSION "v23.3"
+#define FIRMWARE_VERSION "v23.4"
 
 // --- KONFIGURASI PERANGKAT KERAS LOKAL (Layar & Tombol) ---
 #define LCD_ADDRESS 0x27
@@ -25,8 +25,8 @@
 // --- KONFIGURASI JARINGAN ---
 // Kredensial ini akan dimuat/disimpan di memori (Preferences)
 // Nilai di bawah ini hanya sebagai fallback jika memori kosong.
-char WIFI_SSID[33] = SECRET_WIFI_SSID; 
-char WIFI_PASSWORD[65] = SECRET_WIFI_PASS;
+char WIFI_SSID[33] = ""; // Akan diisi dari Preferences
+char WIFI_PASSWORD[65] = ""; // Akan diisi dari Preferences
 const char* AP_SSID = SECRET_AP_SSID;
 const char* AP_PASSWORD = SECRET_AP_PASS;
 
@@ -108,4 +108,4 @@ const unsigned long MQTT_RETRY_INTERVAL = 5000; // 5 detik
 
 // --- KONFIGURASI SUPABASE EMAIL NOTIFIKASI ---
 const char* SUPABASE_URL = SECRET_SUPABASE_URL;
-const char* SUPABASE_KEY = SECRET_SUPABASE_KEY;
+const char* SUPABASE_KEY = SECRET_SUPABASE_KEY; // Menggunakan satu key saja

@@ -22,15 +22,15 @@ jobs:
           mkdir -p include
           cat <<EOF > include/secrets.h
           #pragma once
-          #define SECRET_WIFI_SSID "${{ secrets.WIFI_SSID }}"
-          #define SECRET_WIFI_PASS "${{ secrets.WIFI_PASS }}"
-          #define SECRET_AP_SSID "${{ secrets.AP_SSID }}"
-          #define SECRET_AP_PASS "${{ secrets.AP_PASS }}"
-          #define SECRET_MQTT_BROKER "${{ secrets.MQTT_BROKER }}"
-          #define SECRET_MQTT_USER "${{ secrets.MQTT_USER }}"
-          #define SECRET_MQTT_PASS "${{ secrets.MQTT_PASS }}"
-          #define SECRET_SUPABASE_URL "${{ secrets.SUPABASE_URL }}"
-          #define SECRET_SUPABASE_KEY "${{ secrets.SUPABASE_KEY }}"
+          #define SECRET_WIFI_SSID "${{ secrets.SECRET_WIFI_SSID }}"
+          #define SECRET_WIFI_PASS "${{ secrets.SECRET_WIFI_PASS }}"
+          #define SECRET_AP_SSID "${{ secrets.SECRET_AP_SSID }}"
+          #define SECRET_AP_PASS "${{ secrets.SECRET_AP_PASS }}"
+          #define SECRET_MQTT_BROKER "${{ secrets.SECRET_MQTT_BROKER }}"
+          #define SECRET_MQTT_USER "${{ secrets.SECRET_MQTT_USER }}"
+          #define SECRET_MQTT_PASS "${{ secrets.SECRET_MQTT_PASS }}"
+          #define SECRET_SUPABASE_URL "${{ secrets.SECRET_SUPABASE_URL }}"
+          #define SECRET_SUPABASE_KEY "${{ secrets.SECRET_SUPABASE_KEY }}"
           EOF
 
       # Langkah 3: Setup PlatformIO (tidak berubah)

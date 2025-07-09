@@ -198,12 +198,35 @@ void init_storage_and_wifi() {
         currentState = STATE_AP_MODE;
         start_ap_mode();
     } else {
-        preferences.getString("wifi_ssid", WIFI_SSID, sizeof(WIFI_SSID));
-        if (strcmp(WIFI_SSID, "DEFAULT_SSID") == 0) {
-            currentState = STATE_AP_MODE;
-            start_ap_mode();
+        // Coba baca SSID dari Preferences
+        String stored_ssid = preferences.getString("wifi_ssid", "");
+        String stored_pass = preferences.getString("wifi_pass", "");
+
+        if (stored_ssid.length() == 0) {
+            Serial.println("SSID tidak ditemukan di Preferences, gunakan default dari secrets.h");
+            strncpy(WIFI_SSID, SECRET_WIFI_SSID, sizeof(WIFI_SSID) - 1);
+            WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
+            strncpy(WIFI_PASSWORD, SECRET_WIFI_PASS, sizeof(WIFI_PASSWORD) - 1);
+            WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
+
+            Serial.printf("Menggunakan SSID default: %s\n", WIFI_SSID);
+
+            // Jika default juga kosong, baru masuk mode AP
+            if (strlen(WIFI_SSID) == 0) {
+                Serial.println("Default SSID kosong, masuk mode AP");
+                currentState = STATE_AP_MODE;
+                start_ap_mode();
+            } else {
+                currentState = STATE_CONNECTING;
+            }
         } else {
-            preferences.getString("wifi_pass", WIFI_PASSWORD, sizeof(WIFI_PASSWORD));
+            // Copy dari Preferences
+            strncpy(WIFI_SSID, stored_ssid.c_str(), sizeof(WIFI_SSID) - 1);
+            WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
+            strncpy(WIFI_PASSWORD, stored_pass.c_str(), sizeof(WIFI_PASSWORD) - 1);
+            WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
+
+            Serial.printf("Menggunakan SSID dari Preferences: %s\n", WIFI_SSID);
             currentState = STATE_CONNECTING;
         }
     }
@@ -231,6 +254,7 @@ void init_mqtt() {
 // --- Handler Mode Operasi & Web Server ---
 void handle_connecting_state() {
     display_connecting_wifi();
+    Serial.printf("Mencoba koneksi ke WiFi: %s\n", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     for (int attempt = 0; attempt < 20 && WiFi.status() != WL_CONNECTED; attempt++) {
         delay(500);
@@ -238,9 +262,11 @@ void handle_connecting_state() {
     }
     if (WiFi.status() == WL_CONNECTED) {
         Serial.println("\nWiFi terhubung!");
+        Serial.printf("IP Address: %s\n", WiFi.localIP().toString().c_str());
         init_mqtt();
         currentState = STATE_NORMAL_OPERATION;
     } else {
+        Serial.printf("\nKoneksi WiFi gagal. Status: %d\n", WiFi.status());
         lcd.clear();
         lcd.print("Koneksi Gagal!");
         lcd.setCursor(0, 1);
