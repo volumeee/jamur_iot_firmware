@@ -6,7 +6,7 @@
 // ==      FILE KONFIGURASI PROYEK JAMUR IOT               ==
 // ==========================================================
 
-#define FIRMWARE_VERSION "v23.2"
+#define FIRMWARE_VERSION "v23.3"
 
 // --- KONFIGURASI PERANGKAT KERAS LOKAL (Layar & Tombol) ---
 #define LCD_ADDRESS 0x27
@@ -105,3 +105,7 @@ const int NOTIF_PERIODIC_INTERVAL_MS = 60000; // 1 menit
 const int NOTIF_RETRY_COUNT = 3;
 const int NOTIF_RETRY_DELAY_MS = 500;
 const unsigned long MQTT_RETRY_INTERVAL = 5000; // 5 detik
+
+// --- KONFIGURASI SUPABASE EMAIL NOTIFIKASI ---
+const char* SUPABASE_URL = SECRET_SUPABASE_URL;
+const char* SECRET_SUPABASE_KEY = SECRET_SUPABASE_KEY;
