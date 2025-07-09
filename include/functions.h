@@ -26,6 +26,22 @@ struct DeviceConfig {
     int schedule_hours[5];
     int schedule_count;
 };
+
+struct NotificationData {
+    const char* type;
+    const char* message;
+    float humidity = -1;
+    float temperature = -1;
+    String version = "";
+    String release_notes = "";
+};
+
+struct FirmwareInfo {
+    String version = "";
+    String release_notes = "";
+    String url = "";
+};
+
 extern DeviceConfig config;
 
 enum AppState { STATE_BOOTING, STATE_AP_MODE, STATE_CONNECTING, STATE_NORMAL_OPERATION, STATE_MENU_INFO, STATE_UPDATING };
@@ -70,3 +86,5 @@ void turn_pump_on(const char* reason);
 void turn_pump_off();
 void perform_ota_update(String url);
 void publish_firmware_status(const char* status);
+void trigger_email_notification(const NotificationData& data);
+void check_for_firmware_update();

@@ -46,8 +46,8 @@ bool okButtonPressed = false;
 unsigned long lastPeriodicNotifTime = 0;
 unsigned long lastOkDebounceTime = 0;
 unsigned long lastMqttRetryTime = 0;
-
-// Tambahkan enum dan variabel untuk status notifikasi terakhir
+FirmwareInfo newFirmware;
+bool newFirmwareAvailable = false;
 enum NotifState { NOTIF_NORMAL, NOTIF_WARNING, NOTIF_CRITICAL };
 NotifState lastNotifState = NOTIF_NORMAL;
 
@@ -456,6 +456,7 @@ void try_reconnect_mqtt() {
             mqttClient.subscribe(TOPICS.pump_control);
             mqttClient.subscribe(TOPICS.config_set);
             mqttClient.subscribe(TOPICS.system_update);
+            mqttClient.subscribe(TOPICS.firmware_new);
             publish_config();
             publish_current_version();
             Serial.println("Berlangganan topik MQTT berhasil.");
@@ -476,13 +477,25 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     } else if (strcmp(topic, TOPICS.config_set) == 0) {
         handle_config_update(payload, length);
     } else if (strcmp(topic, TOPICS.system_update) == 0) {
-        JsonDocument doc; // Gunakan JsonDocument untuk v7+
+        JsonDocument doc;
         deserializeJson(doc, payload, length);
         if (!doc["command"].isNull() && doc["command"] == "FIRMWARE_UPDATE") {
             String url = doc["url"];
             if (url.length() > 0) {
                 perform_ota_update(url);
             }
+        }
+    } else if (strcmp(topic, TOPICS.firmware_new) == 0) {
+        // Handle firmware update notification
+        JsonDocument doc;
+        deserializeJson(doc, payload, length);
+        if (!doc["version"].isNull()) {
+            newFirmware.version = doc["version"].as<String>();
+            newFirmware.release_notes = doc["release_notes"] | "";
+            newFirmware.url = doc["url"] | "";
+            
+            // Trigger email notification for firmware update
+            check_for_firmware_update();
         }
     }
 }
@@ -567,6 +580,67 @@ void publish_firmware_status(const char* status) {
     mqttClient.publish(TOPICS.firmware_current, payload, true);
 }
 
+/**
+ * @brief Fungsi pusat untuk memanggil Supabase Edge Function dan mengirim email.
+ * @param data Sebuah struct NotificationData yang berisi semua info yang akan dikirim.
+ */
+void trigger_email_notification(const NotificationData& data) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Tidak bisa kirim email, WiFi tidak terhubung.");
+        return;
+    }
+
+    HTTPClient http;
+    String functionUrl = String(SUPABASE_URL) + "/functions/v1/send-email-notification";
+    
+    Serial.printf("Memicu notifikasi email tipe: %s\n", data.type);
+    http.begin(functionUrl);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Authorization", "Bearer " + String(SECRET_SUPABASE_KEY));
+
+    // Membuat payload JSON dari struct
+    JsonDocument doc;
+    doc["type"] = data.type;
+    doc["message"] = data.message;
+
+    // Tambahkan data kondisional
+    if (data.humidity >= 0) doc["humidity"] = data.humidity;
+    if (data.temperature >= 0) doc["temperature"] = data.temperature;
+    if (data.version.length() > 0) doc["version"] = data.version;
+    if (data.release_notes.length() > 0) doc["release_notes"] = data.release_notes;
+
+    String jsonPayload;
+    serializeJson(doc, jsonPayload);
+
+    int httpCode = http.POST(jsonPayload);
+
+    if (httpCode >= 200 && httpCode < 300) {
+        Serial.printf("[HTTP] Notifikasi email berhasil dikirim, Kode: %d\n", httpCode);
+    } else {
+        Serial.printf("[HTTP] Pengiriman gagal, error: %s\n", http.errorToString(httpCode).c_str());
+    }
+    http.end();
+}
+
+/**
+ * @brief Membandingkan versi firmware dan memicu email jika ada update.
+ */
+void check_for_firmware_update() {
+    if (newFirmware.version.length() > 0 && newFirmware.version != FIRMWARE_VERSION) {
+        Serial.printf("Firmware baru terdeteksi! Saat ini: %s, Tersedia: %s\n", FIRMWARE_VERSION, newFirmware.version.c_str());
+        
+        NotificationData data;
+        data.type = "firmware_update";
+        data.message = "Firmware update tersedia!";
+        data.version = newFirmware.version;
+        data.release_notes = newFirmware.release_notes;
+
+        trigger_email_notification(data);
+
+        // Reset agar tidak mengirim email terus-menerus untuk versi yang sama
+        newFirmware.version = ""; 
+    }
+}
 
 // --- Logika Kontrol & Aksi ---
 void run_humidity_control_logic(float humidity) {
@@ -574,16 +648,43 @@ void run_humidity_control_logic(float humidity) {
         turn_pump_on("auto_critical");
         if (lastNotifState != NOTIF_CRITICAL) {
             send_notification("warning", "Humidity below critical threshold! Pump turned ON.", humidity, currentTemperature);
+            
+            // Kirim email notifikasi
+            NotificationData data;
+            data.type = "critical_alert";
+            data.message = "Kelembapan di bawah ambang batas kritis!";
+            data.humidity = humidity;
+            data.temperature = currentTemperature;
+            trigger_email_notification(data);
+            
             lastNotifState = NOTIF_CRITICAL;
         }
     } else if (humidity < config.humidity_warning) {
         if (lastNotifState != NOTIF_WARNING) {
             send_notification("warning", "Warning: Humidity approaching lower limit.", humidity, currentTemperature);
+            
+            // Kirim email notifikasi
+            NotificationData data;
+            data.type = "warning";
+            data.message = "Kelembapan mendekati ambang batas.";
+            data.humidity = humidity;
+            data.temperature = currentTemperature;
+            trigger_email_notification(data);
+            
             lastNotifState = NOTIF_WARNING;
         }
     } else {
         if (lastNotifState != NOTIF_NORMAL) {
             send_notification("info", "Humidity back to normal.", humidity, currentTemperature);
+            
+            // Kirim email notifikasi
+            NotificationData data;
+            data.type = "info";
+            data.message = "Kondisi kelembapan kembali normal.";
+            data.humidity = humidity;
+            data.temperature = currentTemperature;
+            trigger_email_notification(data);
+            
             lastNotifState = NOTIF_NORMAL;
         }
     }
