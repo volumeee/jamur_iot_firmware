@@ -4,7 +4,7 @@
 //   Tanggal: 6 Juli 2025
 // =================================================================
 
-// --- Library & File Pendukung (URUTAN INI PENTING) ---
+// --- Library & File Pendukung (urutan penting) ---
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WiFiClientSecure.h>
@@ -21,7 +21,7 @@
 #include "functions.h"
 
 // =================================================================
-//   DEKLARASI OBJEK & VARIABEL GLOBAL
+//   Deklarasi objek & variabel global
 // =================================================================
 WebServer server(80);
 WiFiClientSecure espClient;
@@ -51,7 +51,7 @@ bool newFirmwareAvailable = false;
 enum NotifState { NOTIF_NORMAL, NOTIF_WARNING, NOTIF_CRITICAL };
 NotifState lastNotifState = NOTIF_NORMAL;
 
-// Helper function: publish MQTT dengan retry
+// Publish MQTT dengan retry
 bool publish_with_retry(const char* topic, const char* payload, bool retained = false, int retry = NOTIF_RETRY_COUNT, int delayMs = NOTIF_RETRY_DELAY_MS) {
     for (int i = 0; i < retry; ++i) {
         if (mqttClient.publish(topic, payload, retained)) {
@@ -62,7 +62,7 @@ bool publish_with_retry(const char* topic, const char* payload, bool retained = 
     return false;
 }
 
-// Helper function: kirim notifikasi dengan format JSON
+// Kirim notifikasi dalam format JSON
 void send_notification(const char* type, const char* message, float humidity = -1, float temperature = -1) {
     char notifPayload[256];
     if (humidity >= 0 && temperature >= 0) {
@@ -76,7 +76,7 @@ void send_notification(const char* type, const char* message, float humidity = -
     publish_with_retry(TOPICS.notification, notifPayload);
 }
 
-// Helper class untuk Preferences (ConfigStorage)
+// Penyimpanan konfigurasi ke Preferences
 class ConfigStorage {
 public:
     void load(DeviceConfig& cfg) {
@@ -103,61 +103,84 @@ public:
 };
 ConfigStorage configStorage;
 
-// Prototype fungsi helper
+// =================================================================
+//   FUNGSI INISIALISASI & KONFIGURASI
+// =================================================================
+void init_hardware();
+void load_config();
+void save_config();
+void init_storage_and_wifi();
+void init_mqtt();
+
+// =================================================================
+//   FUNGSI SETUP & LOOP UTAMA
+// =================================================================
+void setup();
+void loop();
+
+// =================================================================
+//   FUNGSI HANDLER MODE OPERASI & WEB SERVER
+// =================================================================
+void handle_connecting_state();
+void handle_normal_operation();
+void start_ap_mode();
+void handle_web_root();
+void handle_web_save();
+
+// =================================================================
+//   FUNGSI TAMPILAN LCD
+// =================================================================
+void display_boot_screen();
+void display_connecting_wifi();
+void display_ap_info(IPAddress ip);
+void display_normal_info();
+void display_menu_info();
+
+// =================================================================
+//   FUNGSI INPUT TOMBOL
+// =================================================================
+void check_buttons();
+
+// =================================================================
+//   FUNGSI LOGIKA UTAMA & KONTROL
+// =================================================================
+void handle_main_logic();
+void run_humidity_control_logic(float humidity);
+void run_scheduled_control(float humidity);
+void turn_pump_on(const char* reason);
+void turn_pump_off();
+
+// =================================================================
+//   FUNGSI KOMUNIKASI, MQTT, NOTIFIKASI, UTILITAS
+// =================================================================
+bool publish_with_retry(const char* topic, const char* payload, bool retained, int retry, int delayMs);
 void try_reconnect_mqtt();
+void mqtt_callback(char* topic, byte* payload, unsigned int length);
+void handle_config_update(byte* payload, unsigned int length);
+void publish_telemetry();
+void publish_wifi_signal();
+void publish_config();
+void publish_current_version();
+void publish_firmware_status(const char* status);
+void publish_firmware_update_progress(const char* stage, int progress, const char* message);
+void send_notification(const char* type, const char* message, float humidity, float temperature);
+void trigger_email_notification(const NotificationData& data);
+void check_for_firmware_update();
 
 // =================================================================
-//   FUNGSI SETUP UTAMA
+//   FUNGSI OTA UPDATE
 // =================================================================
-void setup() {
-    Serial.begin(115200);
-    Serial.print("\n\n=== Jamur IoT ");
-    Serial.print(FIRMWARE_VERSION);
-    Serial.println(" Booting... ===");
-    init_hardware();
-    load_config();
-    init_storage_and_wifi();
-}
+void perform_ota_update(String url);
 
 // =================================================================
-//   FUNGSI LOOP UTAMA (State Machine)
+//   IMPLEMENTASI FUNGSI
 // =================================================================
-void loop() {
-    check_buttons();
-    switch (currentState) {
-        case STATE_AP_MODE:
-            server.handleClient();
-            break;
-        case STATE_CONNECTING:
-            handle_connecting_state();
-            break;
-        case STATE_NORMAL_OPERATION:
-            try_reconnect_mqtt();
-            mqttClient.loop();
-            handle_main_logic();
-            display_normal_info();
-            break;
-        case STATE_MENU_INFO:
-            // Tampilan sudah diatur oleh check_buttons, loop hanya menunggu input
-            break;
-        case STATE_UPDATING:
-             delay(1000);
-            break;
-    }
-}
-
-// =================================================================
-// =================================================================
-// ==              IMPLEMENTASI SEMUA FUNGSI                    ==
-// =================================================================
-// =================================================================
-
-
-// =================================================================
-//   Fungsi-fungsi Inisialisasi & Konfigurasi
-// =================================================================
+//
+// =============================
+// == INISIALISASI & KONFIG  ==
+// =============================
 void init_hardware() {
-    Serial.println("Inisialisasi Hardware...");
+    Serial.println("Inisialisasi hardware...");
     pinMode(PUMP_RELAY_PIN, OUTPUT);
     digitalWrite(PUMP_RELAY_PIN, LOW);
     pinMode(BTN_UP_PIN, INPUT_PULLUP);
@@ -183,35 +206,28 @@ void save_config() {
 }
 
 void init_storage_and_wifi() {
-    Serial.println("Inisialisasi Penyimpanan dan WiFi...");
+    Serial.println("Inisialisasi penyimpanan dan WiFi...");
     preferences.begin("jamur-app", false);
-    
     WiFi.mode(WIFI_AP_STA);
     String mac = WiFi.macAddress();
     mac.replace(":", "");
     snprintf(mqttClientId, sizeof(mqttClientId), "%s%s", MQTT_CLIENT_ID_PREFIX, mac.substring(6).c_str());
     Serial.printf("MQTT Client ID: %s\n", mqttClientId);
-    
-    Serial.println("Mengecek tombol BACK untuk masuk mode AP (tahan saat boot)...");
-    delay(1000); 
+    Serial.println("Cek tombol BACK untuk mode AP (tahan saat boot)...");
+    delay(1000);
     if (digitalRead(BTN_BACK_PIN) == LOW) {
         currentState = STATE_AP_MODE;
         start_ap_mode();
     } else {
-        // Coba baca SSID dari Preferences
         String stored_ssid = preferences.getString("wifi_ssid", "");
         String stored_pass = preferences.getString("wifi_pass", "");
-
         if (stored_ssid.length() == 0) {
             Serial.println("SSID tidak ditemukan di Preferences, gunakan default dari secrets.h");
             strncpy(WIFI_SSID, SECRET_WIFI_SSID, sizeof(WIFI_SSID) - 1);
             WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
             strncpy(WIFI_PASSWORD, SECRET_WIFI_PASS, sizeof(WIFI_PASSWORD) - 1);
             WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
-
             Serial.printf("Menggunakan SSID default: %s\n", WIFI_SSID);
-
-            // Jika default juga kosong, baru masuk mode AP
             if (strlen(WIFI_SSID) == 0) {
                 Serial.println("Default SSID kosong, masuk mode AP");
                 currentState = STATE_AP_MODE;
@@ -220,12 +236,10 @@ void init_storage_and_wifi() {
                 currentState = STATE_CONNECTING;
             }
         } else {
-            // Copy dari Preferences
             strncpy(WIFI_SSID, stored_ssid.c_str(), sizeof(WIFI_SSID) - 1);
             WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
             strncpy(WIFI_PASSWORD, stored_pass.c_str(), sizeof(WIFI_PASSWORD) - 1);
             WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
-
             Serial.printf("Menggunakan SSID dari Preferences: %s\n", WIFI_SSID);
             currentState = STATE_CONNECTING;
         }
@@ -234,24 +248,62 @@ void init_storage_and_wifi() {
 }
 
 void init_mqtt() {
-    Serial.println("Mengatur waktu dari server NTP...");
+    Serial.println("Sinkronisasi waktu NTP...");
     configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
-
     struct tm timeinfo;
-    // Tunggu hingga waktu berhasil didapatkan (tahun lebih besar dari 2022)
     while (!getLocalTime(&timeinfo) || timeinfo.tm_year < (2022 - 1900)) {
-        Serial.println("Gagal mendapatkan waktu, mencoba lagi dalam 1 detik...");
+        Serial.println("Gagal mendapatkan waktu, retry 1 detik...");
         delay(1000);
     }
-    Serial.println("Waktu berhasil disinkronkan.");
-    
-    Serial.println("Mengatur koneksi aman (TLS)...");
+    Serial.println("Waktu tersinkron.");
+    Serial.println("Setup koneksi TLS...");
     espClient.setCACert(HIVE_MQ_ROOT_CA);
     mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
     mqttClient.setCallback(mqtt_callback);
 }
 
-// --- Handler Mode Operasi & Web Server ---
+// =============================
+// == SETUP & LOOP UTAMA      ==
+// =============================
+void setup() {
+    Serial.begin(115200);
+    Serial.print("\n\n=== Jamur IoT ");
+    Serial.print(FIRMWARE_VERSION);
+    Serial.println(" Booting... ===");
+    init_hardware();
+    load_config();
+    init_storage_and_wifi();
+}
+
+// =================================================================
+//   Loop utama (state machine)
+// =================================================================
+void loop() {
+    check_buttons();
+    switch (currentState) {
+        case STATE_AP_MODE:
+            server.handleClient();
+            break;
+        case STATE_CONNECTING:
+            handle_connecting_state();
+            break;
+        case STATE_NORMAL_OPERATION:
+            try_reconnect_mqtt();
+            mqttClient.loop();
+            handle_main_logic();
+            display_normal_info();
+            break;
+        case STATE_MENU_INFO:
+            break;
+        case STATE_UPDATING:
+            delay(1000);
+            break;
+    }
+}
+
+// =============================
+// == HANDLER MODE/WEB SERVER ==
+// =============================
 void handle_connecting_state() {
     display_connecting_wifi();
     Serial.printf("Mencoba koneksi ke WiFi: %s\n", WIFI_SSID);
@@ -279,7 +331,7 @@ void handle_connecting_state() {
 void handle_normal_operation() {
     if (!mqttClient.connected() && millis() - lastMqttRetryTime > MQTT_RETRY_INTERVAL) {
         lastMqttRetryTime = millis();
-        Serial.print("Mencoba koneksi MQTT (aman)...");
+        Serial.print("Mencoba koneksi MQTT (TLS)...");
         if (mqttClient.connect(mqttClientId, MQTT_USER, MQTT_PASSWORD, TOPICS.status, 1, true, "{\"state\":\"offline\"}")) {
             Serial.println("terhubung!");
             mqttClient.publish(TOPICS.status, "{\"state\":\"online\"}");
@@ -288,7 +340,7 @@ void handle_normal_operation() {
             mqttClient.subscribe(TOPICS.system_update);
             publish_config();
             publish_current_version();
-            Serial.println("Berlangganan topik MQTT berhasil.");
+            Serial.println("Berlangganan topik MQTT sukses.");
         } else {
             Serial.printf("gagal, rc=%d. ", mqttClient.state());
             char error_buf[100];
@@ -302,7 +354,7 @@ void handle_normal_operation() {
 }
 
 void start_ap_mode() {
-    Serial.println("Memulai Mode Access Point (AP)...");
+    Serial.println("Mode Access Point (AP)...");
     WiFi.softAP(AP_SSID, AP_PASSWORD);
     IPAddress IP = WiFi.softAPIP();
     display_ap_info(IP);
@@ -357,36 +409,12 @@ void handle_web_save() {
     ESP.restart();
 }
 
-// --- Logika Utama & Tampilan ---
-void handle_main_logic() {
-    if (millis() - lastLogicCheckTime >= LOGIC_CHECK_INTERVAL_MS) {
-        lastLogicCheckTime = millis();
-        currentHumidity = dht.readHumidity();
-        currentTemperature = dht.readTemperature();
-        if (isnan(currentHumidity) || isnan(currentTemperature)) return;
-        publish_telemetry();
-        run_humidity_control_logic(currentHumidity);
-        run_scheduled_control(currentHumidity);
-    }
-    if (millis() - lastWifiSignalPublishTime >= WIFI_SIGNAL_PUBLISH_INTERVAL_MS) {
-        lastWifiSignalPublishTime = millis();
-        publish_wifi_signal();
-    }
-    if (isPumpOn && millis() >= pumpStopTime) {
-        turn_pump_off();
-    }
-    // Notifikasi periodik setiap 1 menit
-    if (millis() - lastPeriodicNotifTime >= NOTIF_PERIODIC_INTERVAL_MS) {
-        lastPeriodicNotifTime = millis();
-        char msg[128];
-        snprintf(msg, sizeof(msg), "Periodic status: H=%.1f%%, T=%.1fC, Pump=%s", currentHumidity, currentTemperature, isPumpOn ? "ON" : "OFF");
-        send_notification("info", msg, currentHumidity, currentTemperature);
-    }
-}
-
+// =============================
+// == TAMPILAN LCD            ==
+// =============================
 void display_boot_screen() {
     lcd.clear();
-    lcd.setCursor(0, 0); 
+    lcd.setCursor(0, 0);
     lcd.print("Jamur IoT ");
     lcd.print(FIRMWARE_VERSION);
     lcd.setCursor(0, 1); lcd.print("Booting...");
@@ -412,13 +440,11 @@ void display_normal_info() {
     if (millis() - lastDisplayTime < 1000 && !okButtonPressed) return;
     lastDisplayTime = millis();
     okButtonPressed = false;
-
     lcd.clear();
     lcd.setCursor(0, 0);
     char line1[17];
     snprintf(line1, sizeof(line1), "H:%.1f%% T:%.1fC", currentHumidity, currentTemperature);
     lcd.print(line1);
-
     lcd.setCursor(0, 1);
     char line2[17];
     const char* pumpStatusStr = isPumpOn ? "ON " : "OFF";
@@ -435,7 +461,9 @@ void display_menu_info() {
     lcd.print(ipline);
 }
 
-// --- Input Tombol ---
+// =============================
+// == INPUT TOMBOL            ==
+// =============================
 void check_buttons() {
     if (digitalRead(BTN_OK_PIN) == LOW) {
         if (millis() - lastOkDebounceTime > DEBOUNCE_DELAY_MS) {
@@ -451,7 +479,7 @@ void check_buttons() {
     } else {
         if (btnOkPressTime > 0 && !okButtonLongPress) {
             Serial.println("Tombol OK ditekan singkat -> Buka Menu");
-             if (currentState == STATE_NORMAL_OPERATION) {
+            if (currentState == STATE_NORMAL_OPERATION) {
                 currentState = STATE_MENU_INFO;
                 display_menu_info();
             }
@@ -459,7 +487,6 @@ void check_buttons() {
         btnOkPressTime = 0;
         okButtonLongPress = false;
     }
-
     if (digitalRead(BTN_BACK_PIN) == LOW) {
         static unsigned long lastDebounceTime = 0;
         if (millis() - lastDebounceTime > DEBOUNCE_DELAY_MS) {
@@ -472,12 +499,23 @@ void check_buttons() {
     }
 }
 
-// --- MQTT & Komunikasi ---
-// Non-blocking MQTT reconnect
+// =============================
+// == KOMUNIKASI, MQTT, NOTIF, UTILITAS ==
+// =============================
+bool publish_with_retry(const char* topic, const char* payload, bool retained, int retry, int delayMs) {
+    for (int i = 0; i < retry; ++i) {
+        if (mqttClient.publish(topic, payload, retained)) {
+            return true;
+        }
+        delay(delayMs);
+    }
+    return false;
+}
+
 void try_reconnect_mqtt() {
     if (!mqttClient.connected() && millis() - lastMqttRetryTime > MQTT_RETRY_INTERVAL) {
         lastMqttRetryTime = millis();
-        Serial.print("Mencoba koneksi MQTT (aman)...");
+        Serial.print("Mencoba koneksi MQTT (TLS)...");
         if (mqttClient.connect(mqttClientId, MQTT_USER, MQTT_PASSWORD, TOPICS.status, 1, true, "{\"state\":\"offline\"}")) {
             Serial.println("terhubung!");
             mqttClient.publish(TOPICS.status, "{\"state\":\"online\"}");
@@ -487,7 +525,7 @@ void try_reconnect_mqtt() {
             mqttClient.subscribe(TOPICS.firmware_new);
             publish_config();
             publish_current_version();
-            Serial.println("Berlangganan topik MQTT berhasil.");
+            Serial.println("Berlangganan topik MQTT sukses.");
         } else {
             Serial.printf("gagal, rc=%d. ", mqttClient.state());
             char error_buf[100];
@@ -514,15 +552,12 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
             }
         }
     } else if (strcmp(topic, TOPICS.firmware_new) == 0) {
-        // Handle firmware update notification
         JsonDocument doc;
         deserializeJson(doc, payload, length);
         if (!doc["version"].isNull()) {
             newFirmware.version = doc["version"].as<String>();
             newFirmware.release_notes = doc["release_notes"] | "";
             newFirmware.url = doc["url"] | "";
-            
-            // Trigger email notification for firmware update
             check_for_firmware_update();
         }
     }
@@ -555,175 +590,67 @@ void handle_config_update(byte* payload, unsigned int length) {
     publish_config();
 }
 
-void publish_telemetry() {
-    char payload[100];
-    snprintf(payload, sizeof(payload), "{\"temperature\":%.2f, \"humidity\":%.2f}", currentTemperature, currentHumidity);
-    mqttClient.publish(TOPICS.telemetry, payload);
-}
-
-void publish_wifi_signal() {
-    long rssi = WiFi.RSSI();
-    char payload[50];
-    snprintf(payload, sizeof(payload), "{\"rssi\":%ld}", rssi);
-    mqttClient.publish(TOPICS.wifi_signal, payload, true);
-}
-
-void publish_config() {
-    JsonDocument doc;
-    doc["h_crit"] = config.humidity_critical;
-    doc["h_warn"] = config.humidity_warning;
-    JsonArray schedules = doc["schedules"].to<JsonArray>();
-    for (int i = 0; i < config.schedule_count; i++) {
-        schedules.add(config.schedule_hours[i]);
+// =============================
+// == LOGIKA UTAMA & KONTROL  ==
+// =============================
+void handle_main_logic() {
+    if (millis() - lastLogicCheckTime >= LOGIC_CHECK_INTERVAL_MS) {
+        lastLogicCheckTime = millis();
+        currentHumidity = dht.readHumidity();
+        currentTemperature = dht.readTemperature();
+        if (isnan(currentHumidity) || isnan(currentTemperature)) return;
+        publish_telemetry();
+        run_humidity_control_logic(currentHumidity);
+        run_scheduled_control(currentHumidity);
     }
-    char buffer[256];
-    serializeJson(doc, buffer);
-    mqttClient.publish(TOPICS.config_get, buffer, true);
-}
-
-/**
- * @brief Mempublikasikan versi firmware saat ini ke MQTT.
- */
-void publish_current_version() {
-    JsonDocument doc;
-    doc["version"] = FIRMWARE_VERSION;
-    char payload[50];
-    serializeJson(doc, payload);
-    // Kirim dengan flag retained agar frontend selalu tahu versi terakhir
-    mqttClient.publish(TOPICS.firmware_current, payload, true); 
-    Serial.printf("Versi firmware saat ini (%s) dipublikasikan.\n", FIRMWARE_VERSION);
-}
-
-// --- Fungsi Publish Status Firmware ---
-/**
- * @brief Publish status update firmware ke MQTT.
- * @param status Status update: "updating", "updated", atau "failed"
- */
-void publish_firmware_status(const char* status) {
-    JsonDocument doc;
-    doc["status"] = status;
-    doc["version"] = FIRMWARE_VERSION;
-    char payload[64];
-    serializeJson(doc, payload);
-    mqttClient.publish(TOPICS.firmware_current, payload, true);
-}
-
-// --- Fungsi Publish Progress Update Firmware ---
-void publish_firmware_update_progress(const char* stage, int progress, const char* message) {
-    JsonDocument doc;
-    doc["stage"] = stage;
-    doc["progress"] = progress;
-    if (message && strlen(message) > 0) doc["message"] = message;
-    char payload[128];
-    serializeJson(doc, payload);
-    mqttClient.publish(TOPICS.firmware_update, payload, true);
-}
-
-/**
- * @brief Fungsi pusat untuk memanggil Supabase Edge Function dan mengirim email.
- * @param data Sebuah struct NotificationData yang berisi semua info yang akan dikirim.
- */
-void trigger_email_notification(const NotificationData& data) {
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("Tidak bisa kirim email, WiFi tidak terhubung.");
-        return;
+    if (millis() - lastWifiSignalPublishTime >= WIFI_SIGNAL_PUBLISH_INTERVAL_MS) {
+        lastWifiSignalPublishTime = millis();
+        publish_wifi_signal();
     }
-
-    HTTPClient http;
-    String functionUrl = String(SUPABASE_URL) + "/functions/v1/send-email-notification";
-    
-    Serial.printf("Memicu notifikasi email tipe: %s\n", data.type);
-    http.begin(functionUrl);
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("Authorization", "Bearer " + String(SUPABASE_KEY));
-
-    // Membuat payload JSON dari struct
-    JsonDocument doc;
-    doc["type"] = data.type;
-    doc["message"] = data.message;
-
-    // Tambahkan data kondisional
-    if (data.humidity >= 0) doc["humidity"] = data.humidity;
-    if (data.temperature >= 0) doc["temperature"] = data.temperature;
-    if (data.version.length() > 0) doc["version"] = data.version;
-    if (data.release_notes.length() > 0) doc["release_notes"] = data.release_notes;
-
-    String jsonPayload;
-    serializeJson(doc, jsonPayload);
-
-    int httpCode = http.POST(jsonPayload);
-
-    if (httpCode >= 200 && httpCode < 300) {
-        Serial.printf("[HTTP] Notifikasi email berhasil dikirim, Kode: %d\n", httpCode);
-    } else {
-        Serial.printf("[HTTP] Pengiriman gagal, error: %s\n", http.errorToString(httpCode).c_str());
+    if (isPumpOn && millis() >= pumpStopTime) {
+        turn_pump_off();
     }
-    http.end();
-}
-
-/**
- * @brief Membandingkan versi firmware dan memicu email jika ada update.
- */
-void check_for_firmware_update() {
-    if (newFirmware.version.length() > 0 && newFirmware.version != FIRMWARE_VERSION) {
-        Serial.printf("Firmware baru terdeteksi! Saat ini: %s, Tersedia: %s\n", FIRMWARE_VERSION, newFirmware.version.c_str());
-        
-        NotificationData data;
-        data.type = "firmware_update";
-        data.message = "Firmware update tersedia!";
-        data.version = newFirmware.version;
-        data.release_notes = newFirmware.release_notes;
-
-        trigger_email_notification(data);
-
-        // Reset agar tidak mengirim email terus-menerus untuk versi yang sama
-        newFirmware.version = ""; 
+    if (millis() - lastPeriodicNotifTime >= NOTIF_PERIODIC_INTERVAL_MS) {
+        lastPeriodicNotifTime = millis();
+        char msg[128];
+        snprintf(msg, sizeof(msg), "Periodic status: H=%.1f%%, T=%.1fC, Pump=%s", currentHumidity, currentTemperature, isPumpOn ? "ON" : "OFF");
+        send_notification("info", msg, currentHumidity, currentTemperature);
     }
 }
 
-// --- Logika Kontrol & Aksi ---
 void run_humidity_control_logic(float humidity) {
     if (humidity < config.humidity_critical) {
         turn_pump_on("auto_critical");
         if (lastNotifState != NOTIF_CRITICAL) {
             send_notification("warning", "Humidity below critical threshold! Pump turned ON.", humidity, currentTemperature);
-            
-            // Kirim email notifikasi
             NotificationData data;
             data.type = "critical_alert";
             data.message = "Kelembapan di bawah ambang batas kritis!";
             data.humidity = humidity;
             data.temperature = currentTemperature;
             trigger_email_notification(data);
-            
             lastNotifState = NOTIF_CRITICAL;
         }
     } else if (humidity < config.humidity_warning) {
         if (lastNotifState != NOTIF_WARNING) {
             send_notification("warning", "Warning: Humidity approaching lower limit.", humidity, currentTemperature);
-            
-            // Kirim email notifikasi
             NotificationData data;
             data.type = "warning";
             data.message = "Kelembapan mendekati ambang batas.";
             data.humidity = humidity;
             data.temperature = currentTemperature;
             trigger_email_notification(data);
-            
             lastNotifState = NOTIF_WARNING;
         }
     } else {
         if (lastNotifState != NOTIF_NORMAL) {
             send_notification("info", "Humidity back to normal.", humidity, currentTemperature);
-            
-            // Kirim email notifikasi
             NotificationData data;
             data.type = "info";
             data.message = "Kondisi kelembapan kembali normal.";
             data.humidity = humidity;
             data.temperature = currentTemperature;
             trigger_email_notification(data);
-            
             lastNotifState = NOTIF_NORMAL;
         }
     }
@@ -770,7 +697,131 @@ void turn_pump_off() {
     send_notification("info", "Pump turned OFF.", currentHumidity, currentTemperature);
 }
 
-// --- Fungsi OTA Update ---
+// =============================
+// == KOMUNIKASI, MQTT, NOTIF, UTILITAS ==
+// =============================
+bool publish_with_retry(const char* topic, const char* payload, bool retained, int retry, int delayMs) {
+    for (int i = 0; i < retry; ++i) {
+        if (mqttClient.publish(topic, payload, retained)) {
+            return true;
+        }
+        delay(delayMs);
+    }
+    return false;
+}
+
+void publish_telemetry() {
+    char payload[100];
+    snprintf(payload, sizeof(payload), "{\"temperature\":%.2f, \"humidity\":%.2f}", currentTemperature, currentHumidity);
+    mqttClient.publish(TOPICS.telemetry, payload);
+}
+
+void publish_wifi_signal() {
+    long rssi = WiFi.RSSI();
+    char payload[50];
+    snprintf(payload, sizeof(payload), "{\"rssi\":%ld}", rssi);
+    mqttClient.publish(TOPICS.wifi_signal, payload, true);
+}
+
+void publish_config() {
+    JsonDocument doc;
+    doc["h_crit"] = config.humidity_critical;
+    doc["h_warn"] = config.humidity_warning;
+    JsonArray schedules = doc["schedules"].to<JsonArray>();
+    for (int i = 0; i < config.schedule_count; i++) {
+        schedules.add(config.schedule_hours[i]);
+    }
+    char buffer[256];
+    serializeJson(doc, buffer);
+    mqttClient.publish(TOPICS.config_get, buffer, true);
+}
+
+void publish_current_version() {
+    JsonDocument doc;
+    doc["version"] = FIRMWARE_VERSION;
+    char payload[50];
+    serializeJson(doc, payload);
+    mqttClient.publish(TOPICS.firmware_current, payload, true);
+    Serial.printf("Versi firmware saat ini (%s) dipublikasikan.\n", FIRMWARE_VERSION);
+}
+
+void publish_firmware_status(const char* status) {
+    JsonDocument doc;
+    doc["status"] = status;
+    doc["version"] = FIRMWARE_VERSION;
+    char payload[64];
+    serializeJson(doc, payload);
+    mqttClient.publish(TOPICS.firmware_current, payload, true);
+}
+
+void publish_firmware_update_progress(const char* stage, int progress, const char* message) {
+    JsonDocument doc;
+    doc["stage"] = stage;
+    doc["progress"] = progress;
+    if (message && strlen(message) > 0) doc["message"] = message;
+    char payload[128];
+    serializeJson(doc, payload);
+    mqttClient.publish(TOPICS.firmware_update, payload, true);
+}
+
+void send_notification(const char* type, const char* message, float humidity, float temperature) {
+    char notifPayload[256];
+    if (humidity >= 0 && temperature >= 0) {
+        snprintf(notifPayload, sizeof(notifPayload),
+            "{\"type\":\"%s\", \"message\":\"%s\", \"humidity\":%.1f, \"temperature\":%.1f}",
+            type, message, humidity, temperature);
+    } else {
+        snprintf(notifPayload, sizeof(notifPayload),
+            "{\"type\":\"%s\", \"message\":\"%s\"}", type, message);
+    }
+    publish_with_retry(TOPICS.notification, notifPayload, false, NOTIF_RETRY_COUNT, NOTIF_RETRY_DELAY_MS);
+}
+
+void trigger_email_notification(const NotificationData& data) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Tidak bisa kirim email, WiFi tidak terhubung.");
+        return;
+    }
+    HTTPClient http;
+    String functionUrl = String(SUPABASE_URL) + "/functions/v1/send-email-notification";
+    Serial.printf("Memicu notifikasi email tipe: %s\n", data.type);
+    http.begin(functionUrl);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Authorization", "Bearer " + String(SUPABASE_KEY));
+    JsonDocument doc;
+    doc["type"] = data.type;
+    doc["message"] = data.message;
+    if (data.humidity >= 0) doc["humidity"] = data.humidity;
+    if (data.temperature >= 0) doc["temperature"] = data.temperature;
+    if (data.version.length() > 0) doc["version"] = data.version;
+    if (data.release_notes.length() > 0) doc["release_notes"] = data.release_notes;
+    String jsonPayload;
+    serializeJson(doc, jsonPayload);
+    int httpCode = http.POST(jsonPayload);
+    if (httpCode >= 200 && httpCode < 300) {
+        Serial.printf("[HTTP] Notifikasi email berhasil dikirim, Kode: %d\n", httpCode);
+    } else {
+        Serial.printf("[HTTP] Pengiriman gagal, error: %s\n", http.errorToString(httpCode).c_str());
+    }
+    http.end();
+}
+
+void check_for_firmware_update() {
+    if (newFirmware.version.length() > 0 && newFirmware.version != FIRMWARE_VERSION) {
+        Serial.printf("Firmware baru terdeteksi! Saat ini: %s, Tersedia: %s\n", FIRMWARE_VERSION, newFirmware.version.c_str());
+        NotificationData data;
+        data.type = "firmware_update";
+        data.message = "Firmware update tersedia!";
+        data.version = newFirmware.version;
+        data.release_notes = newFirmware.release_notes;
+        trigger_email_notification(data);
+        newFirmware.version = "";
+    }
+}
+
+// =============================
+// == OTA UPDATE              ==
+// =============================
 void perform_ota_update(String url) {
     Serial.printf("Received OTA Update command. URL: %s\n", url.c_str());
     currentState = STATE_UPDATING;
