@@ -1,43 +1,74 @@
 #pragma once
 
-#include <stdint.h>
 #include "secrets.h"
 
 // ==========================================================
 // ==      FILE KONFIGURASI PROYEK JAMUR IOT               ==
 // ==========================================================
 
-#define FIRMWARE_VERSION "v23.6"
+#define FIRMWARE_VERSION "v23.7"
 
 // --- KONFIGURASI PERANGKAT KERAS LOKAL (Layar & Tombol) ---
-constexpr uint8_t LCD_ADDRESS = 0x27;
-constexpr uint8_t LCD_COLS = 16;
-constexpr uint8_t LCD_ROWS = 2;
-constexpr uint8_t BTN_UP_PIN = 19;
-constexpr uint8_t BTN_DOWN_PIN = 18;
-constexpr uint8_t BTN_OK_PIN = 5;
-constexpr uint8_t BTN_BACK_PIN = 17;
+#define LCD_ADDRESS 0x27
+#define LCD_COLS 16
+#define LCD_ROWS 2
+#define BTN_UP_PIN 19
+#define BTN_DOWN_PIN 18
+#define BTN_OK_PIN 5
+#define BTN_BACK_PIN 17
 
 // --- KONFIGURASI PERANGKAT KERAS SENSOR & AKTUATOR ---
-constexpr uint8_t DHT_PIN = 4;
-constexpr uint8_t PUMP_RELAY_PIN = 23;
-constexpr uint8_t DHT_TYPE = 11; // DHT11
+#define DHT_PIN 4
+#define PUMP_RELAY_PIN 23
+#define DHT_TYPE 11 // DHT11
 
 // --- KONFIGURASI JARINGAN ---
-extern char WIFI_SSID[33];
-extern char WIFI_PASSWORD[65];
-constexpr const char* AP_SSID = SECRET_AP_SSID;
-constexpr const char* AP_PASSWORD = SECRET_AP_PASS;
+char WIFI_SSID[33] = ""; 
+char WIFI_PASSWORD[65] = ""; 
+const char* AP_SSID = SECRET_AP_SSID;
+const char* AP_PASSWORD = SECRET_AP_PASS;
 
 // --- KONFIGURASI MQTT ---
-constexpr const char* MQTT_BROKER = SECRET_MQTT_BROKER;
-constexpr int MQTT_PORT = 8883;
-constexpr const char* MQTT_USER = SECRET_MQTT_USER;
-constexpr const char* MQTT_PASSWORD = SECRET_MQTT_PASS;
-constexpr const char* MQTT_CLIENT_ID_PREFIX = "jamur-iot-";
+const char* MQTT_BROKER = SECRET_MQTT_BROKER;
+const int MQTT_PORT = 8883;
+const char* MQTT_USER = SECRET_MQTT_USER;
+const char* MQTT_PASSWORD = SECRET_MQTT_PASS;
+const char* MQTT_CLIENT_ID_PREFIX = "jamur-iot-";
 
 // --- Sertifikat Root CA untuk HiveMQ Cloud (ISRG Root X1) ---
-extern const char* HIVE_MQ_ROOT_CA;
+const char* HIVE_MQ_ROOT_CA = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
+TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
+cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4
+WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu
+ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY
+MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc
+h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+
+0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U
+A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW
+T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH
+B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC
+B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv
+KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn
+OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn
+jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw
+qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI
+rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV
+HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq
+hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL
+ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ
+3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK
+NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5
+ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur
+TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC
+jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc
+oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
+4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA
+mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
+emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
+-----END CERTIFICATE-----
+)EOF";
 
 // --- STRUKTUR TOPIK MQTT ---
 struct MqttTopics {
@@ -53,24 +84,26 @@ struct MqttTopics {
     const char* firmware_current = "jamur/firmware/current";
     const char* firmware_new = "jamur/firmware/new_available";
 };
-const MqttTopics TOPICS;
+const MqttTopics TOPICS; 
 
 // --- KONFIGURASI PENJADWALAN & WAKTU ---
-constexpr const char* NTP_SERVER = "pool.ntp.org";
-constexpr long GMT_OFFSET_SEC = 7 * 3600;
-constexpr int DAYLIGHT_OFFSET_SEC = 0;
+const char* NTP_SERVER = "pool.ntp.org";
+const long GMT_OFFSET_SEC = 7 * 3600;
+const int DAYLIGHT_OFFSET_SEC = 0;
 
 // --- Durasi & Interval (dalam milidetik) ---
-constexpr int PUMP_DURATION_MS = 30000;
-constexpr int LOGIC_CHECK_INTERVAL_MS = 5000;
-constexpr int WIFI_SIGNAL_PUBLISH_INTERVAL_MS = 60000;
-constexpr int DEBOUNCE_DELAY_MS = 50;
-constexpr int LONG_PRESS_MS = 1500;
-constexpr int NOTIF_PERIODIC_INTERVAL_MS = 60000; // 1 menit
-constexpr int NOTIF_RETRY_COUNT = 3;
-constexpr int NOTIF_RETRY_DELAY_MS = 500;
-constexpr unsigned long MQTT_RETRY_INTERVAL = 5000; // 5 detik
+const int PUMP_DURATION_MS = 30000;
+const int LOGIC_CHECK_INTERVAL_MS = 5000;
+const int WIFI_SIGNAL_PUBLISH_INTERVAL_MS = 60000;
+const int DEBOUNCE_DELAY_MS = 50;
+const int LONG_PRESS_MS = 1500;
+
+// --- NOTIFICATION INTERVAL & RETRY  ---
+const int NOTIF_PERIODIC_INTERVAL_MS = 60000; // 1 menit
+const int NOTIF_RETRY_COUNT = 3;
+const int NOTIF_RETRY_DELAY_MS = 500;
+const unsigned long MQTT_RETRY_INTERVAL = 5000; // 5 detik
 
 // --- KONFIGURASI SUPABASE EMAIL NOTIFIKASI ---
-constexpr const char* SUPABASE_URL = SECRET_SUPABASE_URL;
-constexpr const char* SUPABASE_KEY = SECRET_SUPABASE_KEY; 
+const char* SUPABASE_URL = SECRET_SUPABASE_URL;
+const char* SUPABASE_KEY = SECRET_SUPABASE_KEY; 
