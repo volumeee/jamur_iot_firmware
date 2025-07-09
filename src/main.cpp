@@ -608,6 +608,17 @@ void publish_firmware_status(const char* status) {
     mqttClient.publish(TOPICS.firmware_current, payload, true);
 }
 
+// --- Fungsi Publish Progress Update Firmware ---
+void publish_firmware_update_progress(const char* stage, int progress, const char* message) {
+    JsonDocument doc;
+    doc["stage"] = stage;
+    doc["progress"] = progress;
+    if (message && strlen(message) > 0) doc["message"] = message;
+    char payload[128];
+    serializeJson(doc, payload);
+    mqttClient.publish(TOPICS.firmware_update, payload, true);
+}
+
 /**
  * @brief Fungsi pusat untuk memanggil Supabase Edge Function dan mengirim email.
  * @param data Sebuah struct NotificationData yang berisi semua info yang akan dikirim.
@@ -764,6 +775,7 @@ void perform_ota_update(String url) {
     Serial.printf("Received OTA Update command. URL: %s\n", url.c_str());
     currentState = STATE_UPDATING;
     publish_firmware_status("updating");
+    publish_firmware_update_progress("downloading", 0, "Memulai download firmware...");
     lcd.clear();
     lcd.print("Firmware Update");
     lcd.setCursor(0, 1);
@@ -779,6 +791,7 @@ void perform_ota_update(String url) {
                 lcd.clear();
                 lcd.print("OTA: No space!");
                 send_notification("error", "OTA update failed: not enough space.");
+                publish_firmware_update_progress("error", 0, "Tidak cukup ruang untuk update.");
                 http.end();
                 delay(5000);
                 currentState = STATE_NORMAL_OPERATION;
@@ -787,11 +800,39 @@ void perform_ota_update(String url) {
             bool canBegin = Update.begin(contentLength);
             if (canBegin) {
                 WiFiClient& stream = http.getStream();
-                size_t written = Update.writeStream(stream);
-                if (written == contentLength) {
+                size_t written = 0;
+                uint8_t buff[512];
+                int lastPercent = 0;
+                unsigned long lastProgressTime = millis();
+                while (written < (size_t)contentLength) {
+                    size_t toRead = sizeof(buff);
+                    if ((contentLength - written) < toRead) toRead = contentLength - written;
+                    int bytesRead = stream.readBytes(buff, toRead);
+                    if (bytesRead > 0) {
+                        if (Update.write(buff, bytesRead) != bytesRead) {
+                            Serial.println("Update write error!");
+                            publish_firmware_update_progress("error", (int)(100.0 * written / contentLength), "Gagal menulis data ke flash.");
+                            break;
+                        }
+                        written += bytesRead;
+                        int percent = (int)(100.0 * written / contentLength);
+                        if (percent != lastPercent && millis() - lastProgressTime > 200) {
+                            publish_firmware_update_progress("downloading", percent, "Downloading...");
+                            lastPercent = percent;
+                            lastProgressTime = millis();
+                        }
+                    } else {
+                        Serial.println("Stream read error!");
+                        publish_firmware_update_progress("error", (int)(100.0 * written / contentLength), "Gagal membaca stream data.");
+                        break;
+                    }
+                }
+                if (written == (size_t)contentLength) {
                     Serial.println("Firmware download successful.");
+                    publish_firmware_update_progress("installing", 100, "Menginstall firmware...");
                 } else {
                     Serial.printf("Firmware download failed, size mismatch. Written: %d, Expected: %d\n", written, contentLength);
+                    publish_firmware_update_progress("error", (int)(100.0 * written / contentLength), "Download tidak lengkap.");
                 }
                 if (Update.end()) {
                     if (Update.isFinished()) {
@@ -801,23 +842,29 @@ void perform_ota_update(String url) {
                         lcd.setCursor(0, 1);
                         lcd.print("Restarting...");
                         publish_firmware_status("updated");
+                        publish_firmware_update_progress("finished", 100, "Update selesai, restart...");
                         send_notification("info", "Firmware updated successfully.");
                         delay(2000);
                         ESP.restart();
                     } else {
                         Serial.println("Failed to finish update.");
+                        publish_firmware_update_progress("error", 100, "Gagal menyelesaikan update.");
                     }
                 } else {
                     Serial.printf("OTA Error: #%u\n", Update.getError());
+                    publish_firmware_update_progress("error", 100, "OTA error.");
                 }
             } else {
                 Serial.println("Not enough memory for OTA.");
+                publish_firmware_update_progress("error", 0, "Memori tidak cukup untuk update.");
             }
         } else {
             Serial.println("Unknown content length.");
+            publish_firmware_update_progress("error", 0, "Content length tidak diketahui.");
         }
     } else {
         Serial.printf("HTTP GET failed, error code: %d\n", httpCode);
+        publish_firmware_update_progress("error", 0, "HTTP GET gagal.");
     }
     http.end();
     lcd.clear();

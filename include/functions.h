@@ -88,3 +88,4 @@ void perform_ota_update(String url);
 void publish_firmware_status(const char* status);
 void trigger_email_notification(const NotificationData& data);
 void check_for_firmware_update();
+void publish_firmware_update_progress(const char* stage, int progress, const char* message = nullptr);
