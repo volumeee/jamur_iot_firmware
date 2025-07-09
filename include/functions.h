@@ -88,21 +88,3 @@ void perform_ota_update(String url);
 void publish_firmware_status(const char* status);
 void trigger_email_notification(const NotificationData& data);
 void check_for_firmware_update();
-/**
- * Mengirim notifikasi ke MQTT (dan email jika diperlukan).
- * @param type Jenis notifikasi (info, warning, error, dll)
- * @param message Pesan notifikasi
- * @param humidity (opsional) Kelembapan
- * @param temperature (opsional) Suhu
- */
-void send_notification(const char* type, const char* message, float humidity = -1, float temperature = -1);
-/**
- * Publish progress update OTA ke MQTT agar FE bisa memantau.
- * @param stage Tahap proses: "downloading", "installing", "finished", "error"
- * @param percent Persentase progress (0-100)
- * @param message Pesan tambahan (opsional)
- */
-void publish_ota_progress(const char* stage, int percent, const char* message = "");
-void publish_ota_update(String url);
-void setup();
-void loop();
