@@ -386,7 +386,9 @@ void handle_main_logic() {
 
 void display_boot_screen() {
     lcd.clear();
-    lcd.setCursor(0, 0); lcd.print("Jamur IoT V21");
+    lcd.setCursor(0, 0); 
+    lcd.print("Jamur IoT ");
+    lcd.print(FIRMWARE_VERSION);
     lcd.setCursor(0, 1); lcd.print("Booting...");
 }
 
