@@ -6,7 +6,7 @@
 // ==      FILE KONFIGURASI PROYEK JAMUR IOT               ==
 // ==========================================================
 
-#define FIRMWARE_VERSION "v23.4"
+#define FIRMWARE_VERSION "v23.5"
 
 // --- KONFIGURASI PERANGKAT KERAS LOKAL (Layar & Tombol) ---
 #define LCD_ADDRESS 0x27
@@ -23,15 +23,12 @@
 #define DHT_TYPE 11 // DHT11
 
 // --- KONFIGURASI JARINGAN ---
-// Kredensial ini akan dimuat/disimpan di memori (Preferences)
-// Nilai di bawah ini hanya sebagai fallback jika memori kosong.
-char WIFI_SSID[33] = ""; // Akan diisi dari Preferences
-char WIFI_PASSWORD[65] = ""; // Akan diisi dari Preferences
+char WIFI_SSID[33] = ""; 
+char WIFI_PASSWORD[65] = ""; 
 const char* AP_SSID = SECRET_AP_SSID;
 const char* AP_PASSWORD = SECRET_AP_PASS;
 
 // --- KONFIGURASI MQTT ---
-// Kredensial MQTT akan dimuat dari secrets.h
 const char* MQTT_BROKER = SECRET_MQTT_BROKER;
 const int MQTT_PORT = 8883;
 const char* MQTT_USER = SECRET_MQTT_USER;
@@ -83,7 +80,8 @@ struct MqttTopics {
     const char* config_set = "jamur/config/set";
     const char* wifi_signal = "jamur/wifi_signal";
     const char* system_update = "jamur/system/update";
-    const char* firmware_current = "jamur/firmware/current"; 
+    const char* firmware_update = "jamur/firmware/update";
+    const char* firmware_current = "jamur/firmware/current";
     const char* firmware_new = "jamur/firmware/new_available";
 };
 const MqttTopics TOPICS; 
@@ -108,4 +106,4 @@ const unsigned long MQTT_RETRY_INTERVAL = 5000; // 5 detik
 
 // --- KONFIGURASI SUPABASE EMAIL NOTIFIKASI ---
 const char* SUPABASE_URL = SECRET_SUPABASE_URL;
-const char* SUPABASE_KEY = SECRET_SUPABASE_KEY; // Menggunakan satu key saja
+const char* SUPABASE_KEY = SECRET_SUPABASE_KEY; 

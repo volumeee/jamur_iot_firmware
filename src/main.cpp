@@ -594,18 +594,33 @@ void publish_current_version() {
     Serial.printf("Versi firmware saat ini (%s) dipublikasikan.\n", FIRMWARE_VERSION);
 }
 
-// --- Fungsi Publish Status Firmware ---
+// --- Fungsi Publish Progress OTA ke MQTT ---
 /**
- * @brief Publish status update firmware ke MQTT.
+ * @brief Publish progress update OTA ke MQTT agar FE bisa memantau.
+ * @param stage Tahap proses: "downloading", "installing", "finished", "error"
+ * @param percent Persentase progress (0-100)
+ * @param message Pesan tambahan (opsional)
+ */
+void publish_ota_progress(const char* stage, int percent, const char* message = "") {
+    JsonDocument doc;
+    doc["stage"] = stage;
+    doc["progress"] = percent;
+    doc["message"] = message;
+    char payload[128];
+    serializeJson(doc, payload);
+    mqttClient.publish(TOPICS.firmware_update, payload, true);
+}
+
+/**
+ * @brief Publish status update firmware ke MQTT (hanya status, bukan versi).
  * @param status Status update: "updating", "updated", atau "failed"
  */
 void publish_firmware_status(const char* status) {
     JsonDocument doc;
     doc["status"] = status;
-    doc["version"] = FIRMWARE_VERSION;
     char payload[64];
     serializeJson(doc, payload);
-    mqttClient.publish(TOPICS.firmware_current, payload, true);
+    mqttClient.publish(TOPICS.firmware_update, payload, true);
 }
 
 /**
@@ -760,10 +775,14 @@ void turn_pump_off() {
 }
 
 // --- Fungsi OTA Update ---
-void perform_ota_update(String url) {
+/**
+ * @brief Mempublikasikan versi firmware saat ini ke MQTT.
+ */
+void publish_ota_update(String url) {
     Serial.printf("Received OTA Update command. URL: %s\n", url.c_str());
     currentState = STATE_UPDATING;
     publish_firmware_status("updating");
+    publish_ota_progress("downloading", 0, "Mulai download firmware");
     lcd.clear();
     lcd.print("Firmware Update");
     lcd.setCursor(0, 1);
@@ -779,6 +798,7 @@ void perform_ota_update(String url) {
                 lcd.clear();
                 lcd.print("OTA: No space!");
                 send_notification("error", "OTA update failed: not enough space.");
+                publish_ota_progress("error", 0, "No space for OTA");
                 http.end();
                 delay(5000);
                 currentState = STATE_NORMAL_OPERATION;
@@ -787,12 +807,34 @@ void perform_ota_update(String url) {
             bool canBegin = Update.begin(contentLength);
             if (canBegin) {
                 WiFiClient& stream = http.getStream();
-                size_t written = Update.writeStream(stream);
-                if (written == contentLength) {
-                    Serial.println("Firmware download successful.");
-                } else {
-                    Serial.printf("Firmware download failed, size mismatch. Written: %d, Expected: %d\n", written, contentLength);
+                size_t written = 0;
+                int lastPercent = 0;
+                uint8_t buf[1024];
+                int totalRead = 0;
+                while (totalRead < contentLength) {
+                    int toRead = min((int)sizeof(buf), contentLength - totalRead);
+                    int bytesRead = stream.read(buf, toRead);
+                    if (bytesRead <= 0) break;
+                    if (Update.write(buf, bytesRead) != (size_t)bytesRead) {
+                        Serial.println("Update write error!");
+                        publish_ota_progress("error", lastPercent, "Update write error");
+                        break;
+                    }
+                    totalRead += bytesRead;
+                    int percent = (totalRead * 100) / contentLength;
+                    if (percent - lastPercent >= 10 || percent == 100) {
+                        lastPercent = percent;
+                        publish_ota_progress("downloading", percent, "Downloading firmware");
+                    }
                 }
+                if (totalRead == contentLength) {
+                    Serial.println("Firmware download successful.");
+                    publish_ota_progress("downloading", 100, "Download selesai");
+                } else {
+                    Serial.println("Firmware download failed, size mismatch.");
+                    publish_ota_progress("error", lastPercent, "Download size mismatch");
+                }
+                publish_ota_progress("installing", 0, "Mulai install firmware");
                 if (Update.end()) {
                     if (Update.isFinished()) {
                         Serial.println("Update successful! Restarting...");
@@ -800,24 +842,30 @@ void perform_ota_update(String url) {
                         lcd.print("Update Success!");
                         lcd.setCursor(0, 1);
                         lcd.print("Restarting...");
+                        publish_ota_progress("finished", 100, "Update sukses, restart");
                         publish_firmware_status("updated");
                         send_notification("info", "Firmware updated successfully.");
                         delay(2000);
                         ESP.restart();
                     } else {
                         Serial.println("Failed to finish update.");
+                        publish_ota_progress("error", 100, "Update not finished");
                     }
                 } else {
                     Serial.printf("OTA Error: #%u\n", Update.getError());
+                    publish_ota_progress("error", lastPercent, "Update.end() error");
                 }
             } else {
                 Serial.println("Not enough memory for OTA.");
+                publish_ota_progress("error", 0, "Not enough memory");
             }
         } else {
             Serial.println("Unknown content length.");
+            publish_ota_progress("error", 0, "Unknown content length");
         }
     } else {
         Serial.printf("HTTP GET failed, error code: %d\n", httpCode);
+        publish_ota_progress("error", 0, "HTTP GET failed");
     }
     http.end();
     lcd.clear();
