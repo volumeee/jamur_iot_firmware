@@ -153,7 +153,6 @@ void turn_pump_off();
 // =================================================================
 //   FUNGSI KOMUNIKASI, MQTT, NOTIFIKASI, UTILITAS
 // =================================================================
-bool publish_with_retry(const char* topic, const char* payload, bool retained, int retry, int delayMs);
 void try_reconnect_mqtt();
 void mqtt_callback(char* topic, byte* payload, unsigned int length);
 void handle_config_update(byte* payload, unsigned int length);
@@ -163,7 +162,6 @@ void publish_config();
 void publish_current_version();
 void publish_firmware_status(const char* status);
 void publish_firmware_update_progress(const char* stage, int progress, const char* message);
-void send_notification(const char* type, const char* message, float humidity, float temperature);
 void trigger_email_notification(const NotificationData& data);
 void check_for_firmware_update();
 
@@ -214,7 +212,7 @@ void init_storage_and_wifi() {
     snprintf(mqttClientId, sizeof(mqttClientId), "%s%s", MQTT_CLIENT_ID_PREFIX, mac.substring(6).c_str());
     Serial.printf("MQTT Client ID: %s\n", mqttClientId);
     Serial.println("Cek tombol BACK untuk mode AP (tahan saat boot)...");
-    delay(1000);
+    delay(1000); 
     if (digitalRead(BTN_BACK_PIN) == LOW) {
         currentState = STATE_AP_MODE;
         start_ap_mode();
@@ -414,7 +412,7 @@ void handle_web_save() {
 // =============================
 void display_boot_screen() {
     lcd.clear();
-    lcd.setCursor(0, 0);
+    lcd.setCursor(0, 0); 
     lcd.print("Jamur IoT ");
     lcd.print(FIRMWARE_VERSION);
     lcd.setCursor(0, 1); lcd.print("Booting...");
@@ -479,7 +477,7 @@ void check_buttons() {
     } else {
         if (btnOkPressTime > 0 && !okButtonLongPress) {
             Serial.println("Tombol OK ditekan singkat -> Buka Menu");
-            if (currentState == STATE_NORMAL_OPERATION) {
+             if (currentState == STATE_NORMAL_OPERATION) {
                 currentState = STATE_MENU_INFO;
                 display_menu_info();
             }
@@ -609,16 +607,6 @@ void turn_pump_off() {
 // =================================================================
 //   FUNGSI KOMUNIKASI, MQTT, NOTIFIKASI, UTILITAS
 // =================================================================
-bool publish_with_retry(const char* topic, const char* payload, bool retained, int retry, int delayMs) {
-    for (int i = 0; i < retry; ++i) {
-        if (mqttClient.publish(topic, payload, retained)) {
-            return true;
-        }
-        delay(delayMs);
-    }
-    return false;
-}
-
 void try_reconnect_mqtt() {
     if (!mqttClient.connected() && millis() - lastMqttRetryTime > MQTT_RETRY_INTERVAL) {
         lastMqttRetryTime = millis();
@@ -731,7 +719,7 @@ void publish_current_version() {
     doc["version"] = FIRMWARE_VERSION;
     char payload[50];
     serializeJson(doc, payload);
-    mqttClient.publish(TOPICS.firmware_current, payload, true);
+    mqttClient.publish(TOPICS.firmware_current, payload, true); 
     Serial.printf("Versi firmware saat ini (%s) dipublikasikan.\n", FIRMWARE_VERSION);
 }
 
@@ -752,19 +740,6 @@ void publish_firmware_update_progress(const char* stage, int progress, const cha
     char payload[128];
     serializeJson(doc, payload);
     mqttClient.publish(TOPICS.firmware_update, payload, true);
-}
-
-void send_notification(const char* type, const char* message, float humidity, float temperature) {
-    char notifPayload[256];
-    if (humidity >= 0 && temperature >= 0) {
-        snprintf(notifPayload, sizeof(notifPayload),
-            "{\"type\":\"%s\", \"message\":\"%s\", \"humidity\":%.1f, \"temperature\":%.1f}",
-            type, message, humidity, temperature);
-    } else {
-        snprintf(notifPayload, sizeof(notifPayload),
-            "{\"type\":\"%s\", \"message\":\"%s\"}", type, message);
-    }
-    publish_with_retry(TOPICS.notification, notifPayload, false, NOTIF_RETRY_COUNT, NOTIF_RETRY_DELAY_MS);
 }
 
 void trigger_email_notification(const NotificationData& data) {
@@ -805,7 +780,7 @@ void check_for_firmware_update() {
         data.version = newFirmware.version;
         data.release_notes = newFirmware.release_notes;
         trigger_email_notification(data);
-        newFirmware.version = "";
+        newFirmware.version = ""; 
     }
 }
 
@@ -848,18 +823,18 @@ void perform_ota_update(String url) {
         return;
     }
 
-    int contentLength = http.getSize();
+        int contentLength = http.getSize();
     if (contentLength <= 0) {
         handle_ota_error("Content length tidak diketahui.", "Unknown content length.");
         http.end();
         return;
     }
 
-    if ((uint32_t)ESP.getFreeSketchSpace() < (uint32_t)contentLength) {
+            if ((uint32_t)ESP.getFreeSketchSpace() < (uint32_t)contentLength) {
         handle_ota_error("Tidak cukup ruang untuk update.", "Not enough free space for OTA update.");
-        http.end();
-        return;
-    }
+                http.end();
+                return;
+            }
 
     if (!Update.begin(contentLength)) {
         handle_ota_error("Memori tidak cukup untuk update.", "Not enough memory for OTA.");
@@ -867,35 +842,35 @@ void perform_ota_update(String url) {
         return;
     }
 
-    WiFiClient& stream = http.getStream();
-    size_t written = 0;
-    uint8_t buff[512];
-    int lastPercent = 0;
-    unsigned long lastProgressTime = millis();
+                WiFiClient& stream = http.getStream();
+                size_t written = 0;
+                uint8_t buff[512];
+                int lastPercent = 0;
+                unsigned long lastProgressTime = millis();
 
-    while (written < (size_t)contentLength) {
-        size_t toRead = sizeof(buff);
-        if ((contentLength - written) < toRead) toRead = contentLength - written;
-        int bytesRead = stream.readBytes(buff, toRead);
+                while (written < (size_t)contentLength) {
+                    size_t toRead = sizeof(buff);
+                    if ((contentLength - written) < toRead) toRead = contentLength - written;
+                    int bytesRead = stream.readBytes(buff, toRead);
         if (bytesRead <= 0) {
             handle_ota_error("Gagal membaca stream data.", "Stream read error!");
             Update.abort();
             http.end();
             return;
         }
-        if (Update.write(buff, bytesRead) != bytesRead) {
+                        if (Update.write(buff, bytesRead) != bytesRead) {
             handle_ota_error("Gagal menulis data ke flash.", "Update write error!");
             Update.abort();
             http.end();
             return;
-        }
-        written += bytesRead;
-        int percent = (int)(100.0 * written / contentLength);
-        if (percent != lastPercent && millis() - lastProgressTime > 200) {
-            publish_firmware_update_progress("downloading", percent, "Downloading...");
-            lastPercent = percent;
-            lastProgressTime = millis();
-        }
+                        }
+                        written += bytesRead;
+                        int percent = (int)(100.0 * written / contentLength);
+                        if (percent != lastPercent && millis() - lastProgressTime > 200) {
+                            publish_firmware_update_progress("downloading", percent, "Downloading...");
+                            lastPercent = percent;
+                            lastProgressTime = millis();
+                        }
     }
 
     if (written != (size_t)contentLength) {
@@ -905,8 +880,8 @@ void perform_ota_update(String url) {
         return;
     }
 
-    Serial.println("Firmware download successful.");
-    publish_firmware_update_progress("installing", 100, "Menginstall firmware...");
+                    Serial.println("Firmware download successful.");
+                    publish_firmware_update_progress("installing", 100, "Menginstall firmware...");
 
     if (!Update.end() || !Update.isFinished()) {
         handle_ota_error("Gagal menyelesaikan update.", "Failed to finish update.");
@@ -914,15 +889,15 @@ void perform_ota_update(String url) {
         return;
     }
 
-    Serial.println("Update successful! Restarting...");
-    lcd.clear();
-    lcd.print("Update Success!");
-    lcd.setCursor(0, 1);
-    lcd.print("Restarting...");
-    publish_firmware_status("updated");
-    publish_firmware_update_progress("finished", 100, "Update selesai, restart...");
-    send_notification("info", "Firmware updated successfully.");
+                        Serial.println("Update successful! Restarting...");
+                        lcd.clear();
+                        lcd.print("Update Success!");
+                        lcd.setCursor(0, 1);
+                        lcd.print("Restarting...");
+                        publish_firmware_status("updated");
+                        publish_firmware_update_progress("finished", 100, "Update selesai, restart...");
+                        send_notification("info", "Firmware updated successfully.");
     http.end();
-    delay(2000);
-    ESP.restart();
+                        delay(2000);
+                        ESP.restart();
 }
