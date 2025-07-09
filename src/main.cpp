@@ -499,100 +499,9 @@ void check_buttons() {
     }
 }
 
-// =============================
-// == KOMUNIKASI, MQTT, NOTIF, UTILITAS ==
-// =============================
-bool publish_with_retry(const char* topic, const char* payload, bool retained, int retry, int delayMs) {
-    for (int i = 0; i < retry; ++i) {
-        if (mqttClient.publish(topic, payload, retained)) {
-            return true;
-        }
-        delay(delayMs);
-    }
-    return false;
-}
-
-void try_reconnect_mqtt() {
-    if (!mqttClient.connected() && millis() - lastMqttRetryTime > MQTT_RETRY_INTERVAL) {
-        lastMqttRetryTime = millis();
-        Serial.print("Mencoba koneksi MQTT (TLS)...");
-        if (mqttClient.connect(mqttClientId, MQTT_USER, MQTT_PASSWORD, TOPICS.status, 1, true, "{\"state\":\"offline\"}")) {
-            Serial.println("terhubung!");
-            mqttClient.publish(TOPICS.status, "{\"state\":\"online\"}");
-            mqttClient.subscribe(TOPICS.pump_control);
-            mqttClient.subscribe(TOPICS.config_set);
-            mqttClient.subscribe(TOPICS.system_update);
-            mqttClient.subscribe(TOPICS.firmware_new);
-            publish_config();
-            publish_current_version();
-            Serial.println("Berlangganan topik MQTT sukses.");
-        } else {
-            Serial.printf("gagal, rc=%d. ", mqttClient.state());
-            char error_buf[100];
-            espClient.lastError(error_buf, sizeof(error_buf));
-            Serial.printf("Keterangan: %s\n", error_buf);
-        }
-    }
-}
-
-void mqtt_callback(char* topic, byte* payload, unsigned int length) {
-    payload[length] = '\0';
-    Serial.printf("Pesan diterima [%s]: %s\n", topic, (char*)payload);
-    if (strcmp(topic, TOPICS.pump_control) == 0 && strcmp((char*)payload, "ON") == 0) {
-        turn_pump_on("manual_mqtt");
-    } else if (strcmp(topic, TOPICS.config_set) == 0) {
-        handle_config_update(payload, length);
-    } else if (strcmp(topic, TOPICS.system_update) == 0) {
-        JsonDocument doc;
-        deserializeJson(doc, payload, length);
-        if (!doc["command"].isNull() && doc["command"] == "FIRMWARE_UPDATE") {
-            String url = doc["url"];
-            if (url.length() > 0) {
-                perform_ota_update(url);
-            }
-        }
-    } else if (strcmp(topic, TOPICS.firmware_new) == 0) {
-        JsonDocument doc;
-        deserializeJson(doc, payload, length);
-        if (!doc["version"].isNull()) {
-            newFirmware.version = doc["version"].as<String>();
-            newFirmware.release_notes = doc["release_notes"] | "";
-            newFirmware.url = doc["url"] | "";
-            check_for_firmware_update();
-        }
-    }
-}
-
-void handle_config_update(byte* payload, unsigned int length) {
-    JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, payload, length);
-    if (error) {
-        Serial.printf("deserializeJson() gagal: %s\n", error.c_str());
-        return;
-    }
-    Serial.println("Menerima pembaruan konfigurasi dari MQTT.");
-    config.humidity_critical = doc["h_crit"] | config.humidity_critical;
-    config.humidity_warning = doc["h_warn"] | config.humidity_warning;
-    if (doc["schedules"].is<JsonArray>()) {
-        JsonArray newSchedules = doc["schedules"].as<JsonArray>();
-        int validCount = 0;
-        for (int i = 0; i < newSchedules.size() && validCount < 5; i++) {
-            int jam = newSchedules[i];
-            if (jam >= 0 && jam <= 23) {
-                config.schedule_hours[validCount++] = jam;
-            } else {
-                Serial.printf("Jadwal jam tidak valid: %d (abaikan)\n", jam);
-            }
-        }
-        config.schedule_count = validCount;
-    }
-    save_config();
-    publish_config();
-}
-
-// =============================
-// == LOGIKA UTAMA & KONTROL  ==
-// =============================
+// =================================================================
+//   FUNGSI LOGIKA UTAMA & KONTROL
+// =================================================================
 void handle_main_logic() {
     if (millis() - lastLogicCheckTime >= LOGIC_CHECK_INTERVAL_MS) {
         lastLogicCheckTime = millis();
@@ -697,9 +606,9 @@ void turn_pump_off() {
     send_notification("info", "Pump turned OFF.", currentHumidity, currentTemperature);
 }
 
-// =============================
-// == KOMUNIKASI, MQTT, NOTIF, UTILITAS ==
-// =============================
+// =================================================================
+//   FUNGSI KOMUNIKASI, MQTT, NOTIFIKASI, UTILITAS
+// =================================================================
 bool publish_with_retry(const char* topic, const char* payload, bool retained, int retry, int delayMs) {
     for (int i = 0; i < retry; ++i) {
         if (mqttClient.publish(topic, payload, retained)) {
@@ -710,6 +619,87 @@ bool publish_with_retry(const char* topic, const char* payload, bool retained, i
     return false;
 }
 
+void try_reconnect_mqtt() {
+    if (!mqttClient.connected() && millis() - lastMqttRetryTime > MQTT_RETRY_INTERVAL) {
+        lastMqttRetryTime = millis();
+        Serial.print("Mencoba koneksi MQTT (TLS)...");
+        if (mqttClient.connect(mqttClientId, MQTT_USER, MQTT_PASSWORD, TOPICS.status, 1, true, "{\"state\":\"offline\"}")) {
+            Serial.println("terhubung!");
+            mqttClient.publish(TOPICS.status, "{\"state\":\"online\"}");
+            mqttClient.subscribe(TOPICS.pump_control);
+            mqttClient.subscribe(TOPICS.config_set);
+            mqttClient.subscribe(TOPICS.system_update);
+            mqttClient.subscribe(TOPICS.firmware_new);
+            publish_config();
+            publish_current_version();
+            Serial.println("Berlangganan topik MQTT sukses.");
+        } else {
+            Serial.printf("gagal, rc=%d. ", mqttClient.state());
+            char error_buf[100];
+            espClient.lastError(error_buf, sizeof(error_buf));
+            Serial.printf("Keterangan: %s\n", error_buf);
+        }
+    }
+}
+
+void mqtt_callback(char* topic, byte* payload, unsigned int length) {
+    payload[length] = '\0';
+    Serial.printf("Pesan diterima [%s]: %s\n", topic, (char*)payload);
+    if (strcmp(topic, TOPICS.pump_control) == 0 && strcmp((char*)payload, "ON") == 0) {
+        turn_pump_on("manual_mqtt");
+    } else if (strcmp(topic, TOPICS.config_set) == 0) {
+        handle_config_update(payload, length);
+    } else if (strcmp(topic, TOPICS.system_update) == 0) {
+        JsonDocument doc;
+        deserializeJson(doc, payload, length);
+        if (!doc["command"].isNull() && doc["command"] == "FIRMWARE_UPDATE") {
+            String url = doc["url"];
+            if (url.length() > 0) {
+                perform_ota_update(url);
+            }
+        }
+    } else if (strcmp(topic, TOPICS.firmware_new) == 0) {
+        JsonDocument doc;
+        deserializeJson(doc, payload, length);
+        if (!doc["version"].isNull()) {
+            newFirmware.version = doc["version"].as<String>();
+            newFirmware.release_notes = doc["release_notes"] | "";
+            newFirmware.url = doc["url"] | "";
+            check_for_firmware_update();
+        }
+    }
+}
+
+void handle_config_update(byte* payload, unsigned int length) {
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, payload, length);
+    if (error) {
+        Serial.printf("deserializeJson() gagal: %s\n", error.c_str());
+        return;
+    }
+    Serial.println("Menerima pembaruan konfigurasi dari MQTT.");
+    config.humidity_critical = doc["h_crit"] | config.humidity_critical;
+    config.humidity_warning = doc["h_warn"] | config.humidity_warning;
+    if (doc["schedules"].is<JsonArray>()) {
+        JsonArray newSchedules = doc["schedules"].as<JsonArray>();
+        int validCount = 0;
+        for (int i = 0; i < newSchedules.size() && validCount < 5; i++) {
+            int jam = newSchedules[i];
+            if (jam >= 0 && jam <= 23) {
+                config.schedule_hours[validCount++] = jam;
+            } else {
+                Serial.printf("Jadwal jam tidak valid: %d (abaikan)\n", jam);
+            }
+        }
+        config.schedule_count = validCount;
+    }
+    save_config();
+    publish_config();
+}
+
+// =================================================================
+//   FUNGSI KOMUNIKASI, MQTT, NOTIFIKASI, UTILITAS
+// =================================================================
 void publish_telemetry() {
     char payload[100];
     snprintf(payload, sizeof(payload), "{\"temperature\":%.2f, \"humidity\":%.2f}", currentTemperature, currentHumidity);
@@ -819,9 +809,9 @@ void check_for_firmware_update() {
     }
 }
 
-// =============================
-// == OTA UPDATE              ==
-// =============================
+// =================================================================
+//   FUNGSI OTA UPDATE
+// =================================================================
 void handle_ota_error(const char* lcdMsg, const char* logMsg, int code = 0) {
     lcd.clear();
     lcd.print("Update Failed!");
@@ -909,7 +899,7 @@ void perform_ota_update(String url) {
     }
 
     if (written != (size_t)contentLength) {
-        handle_ota_error("Download tidak lengkap.", "Firmware download failed, size mismatch. Written: %d, Expected: %d", written, contentLength);
+        handle_ota_error("Download tidak lengkap.", "Firmware download failed, size mismatch. Written: %d", written);
         Update.abort();
         http.end();
         return;
