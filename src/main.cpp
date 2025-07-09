@@ -596,7 +596,7 @@ void trigger_email_notification(const NotificationData& data) {
     Serial.printf("Memicu notifikasi email tipe: %s\n", data.type);
     http.begin(functionUrl);
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("Authorization", "Bearer " + String(SECRET_SUPABASE_KEY));
+    http.addHeader("Authorization", "Bearer " + String(SUPABASE_KEY));
 
     // Membuat payload JSON dari struct
     JsonDocument doc;
