@@ -16,6 +16,8 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <Update.h>
+#include <FS.h>
+#include <SPIFFS.h>
 
 #include "config.h"
 #include "functions.h"
@@ -105,6 +107,80 @@ ConfigStorage configStorage;
 
 // Prototype fungsi helper
 void try_reconnect_mqtt();
+
+// Fungsi untuk download firmware ke SPIFFS
+bool downloadFirmwareToSPIFFS(const String& url, const char* localPath) {
+    if (!SPIFFS.begin(true)) {
+        Serial.println("SPIFFS mount failed!");
+        return false;
+    }
+    HTTPClient http;
+    http.begin(url);
+    int httpCode = http.GET();
+    if (httpCode != HTTP_CODE_OK) {
+        Serial.printf("HTTP GET failed, code: %d\n", httpCode);
+        http.end();
+        return false;
+    }
+    int contentLength = http.getSize();
+    WiFiClient* stream = http.getStreamPtr();
+    File file = SPIFFS.open(localPath, FILE_WRITE);
+    if (!file) {
+        Serial.println("Gagal buka file di SPIFFS!");
+        http.end();
+        return false;
+    }
+    uint8_t buf[1024];
+    int totalRead = 0;
+    while (http.connected() && (totalRead < contentLength || contentLength == -1)) {
+        int bytesRead = stream->read(buf, sizeof(buf));
+        if (bytesRead <= 0) break;
+        file.write(buf, bytesRead);
+        totalRead += bytesRead;
+    }
+    file.close();
+    http.end();
+    Serial.printf("Firmware downloaded to SPIFFS: %d bytes\n", totalRead);
+    return totalRead > 0;
+}
+
+// Fungsi untuk OTA dari SPIFFS
+bool otaFromSPIFFS(const char* localPath) {
+    File file = SPIFFS.open(localPath, FILE_READ);
+    if (!file) {
+        Serial.println("Gagal buka file firmware di SPIFFS!");
+        return false;
+    }
+    size_t size = file.size();
+    if (!Update.begin(size)) {
+        Serial.println("Update.begin() gagal!");
+        file.close();
+        return false;
+    }
+    size_t written = 0;
+    uint8_t buf[1024];
+    while (file.available()) {
+        size_t len = file.read(buf, sizeof(buf));
+        if (Update.write(buf, len) != len) {
+            Serial.println("Update.write() gagal!");
+            file.close();
+            Update.end();
+            return false;
+        }
+        written += len;
+    }
+    file.close();
+    if (!Update.end()) {
+        Serial.printf("Update.end() gagal! Error: %u\n", Update.getError());
+        return false;
+    }
+    if (!Update.isFinished()) {
+        Serial.println("Update tidak selesai!");
+        return false;
+    }
+    Serial.println("OTA sukses dari SPIFFS!");
+    return true;
+}
 
 // =================================================================
 //   FUNGSI SETUP UTAMA
@@ -779,102 +855,25 @@ void turn_pump_off() {
  * @brief Mempublikasikan versi firmware saat ini ke MQTT.
  */
 void publish_ota_update(String url) {
-    Serial.printf("Received OTA Update command. URL: %s\n", url.c_str());
-    currentState = STATE_UPDATING;
-    publish_firmware_status("updating");
-    publish_ota_progress("downloading", 0, "Mulai download firmware");
+    const char* localPath = "/update.bin";
     lcd.clear();
-    lcd.print("Firmware Update");
-    lcd.setCursor(0, 1);
-    lcd.print("Downloading...");
-    HTTPClient http;
-    http.begin(url);
-    int httpCode = http.GET();
-    int contentLength = http.getSize();
-    Serial.printf("HTTP GET code: %d, Content-Length: %d\n", httpCode, contentLength);
-    if (httpCode == HTTP_CODE_OK) {
-        if (contentLength > 0) {
-            if ((uint32_t)ESP.getFreeSketchSpace() < (uint32_t)contentLength) {
-                Serial.println("Not enough free space for OTA update.");
-                lcd.clear();
-                lcd.print("OTA: No space!");
-                send_notification("error", "OTA update failed: not enough space.");
-                publish_ota_progress("error", 0, "No space for OTA");
-                http.end();
-                delay(5000);
-                currentState = STATE_NORMAL_OPERATION;
-                return;
-            }
-            bool canBegin = Update.begin(contentLength);
-            if (canBegin) {
-                WiFiClient& stream = http.getStream();
-                size_t written = 0;
-                int lastPercent = 0;
-                uint8_t buf[1024];
-                int totalRead = 0;
-                while (totalRead < contentLength) {
-                    int toRead = min((int)sizeof(buf), contentLength - totalRead);
-                    int bytesRead = stream.read(buf, toRead);
-                    if (bytesRead <= 0) break;
-                    if (Update.write(buf, bytesRead) != (size_t)bytesRead) {
-                        Serial.println("Update write error!");
-                        publish_ota_progress("error", lastPercent, "Update write error");
-                        break;
-                    }
-                    totalRead += bytesRead;
-                    int percent = (totalRead * 100) / contentLength;
-                    if (percent - lastPercent >= 10 || percent == 100) {
-                        lastPercent = percent;
-                        publish_ota_progress("downloading", percent, "Downloading firmware");
-                    }
-                }
-                if (totalRead == contentLength) {
-                    Serial.println("Firmware download successful.");
-                    publish_ota_progress("downloading", 100, "Download selesai");
-                } else {
-                    Serial.println("Firmware download failed, size mismatch.");
-                    publish_ota_progress("error", lastPercent, "Download size mismatch");
-                }
-                publish_ota_progress("installing", 0, "Mulai install firmware");
-                if (Update.end()) {
-                    if (Update.isFinished()) {
-                        Serial.println("Update successful! Restarting...");
-                        lcd.clear();
-                        lcd.print("Update Success!");
-                        lcd.setCursor(0, 1);
-                        lcd.print("Restarting...");
-                        publish_ota_progress("finished", 100, "Update sukses, restart");
-                        publish_firmware_status("updated");
-                        send_notification("info", "Firmware updated successfully.");
-                        delay(2000);
-                        ESP.restart();
-                    } else {
-                        Serial.println("Failed to finish update.");
-                        publish_ota_progress("error", 100, "Update not finished");
-                    }
-                } else {
-                    Serial.printf("OTA Error: #%u\n", Update.getError());
-                    publish_ota_progress("error", lastPercent, "Update.end() error");
-                }
-            } else {
-                Serial.println("Not enough memory for OTA.");
-                publish_ota_progress("error", 0, "Not enough memory");
-            }
+    lcd.print("Download OTA...");
+    if (downloadFirmwareToSPIFFS(url, localPath)) {
+        lcd.clear();
+        lcd.print("Install OTA...");
+        if (otaFromSPIFFS(localPath)) {
+            lcd.clear();
+            lcd.print("Update Success!");
+            delay(2000);
+            SPIFFS.remove(localPath);
+            ESP.restart();
         } else {
-            Serial.println("Unknown content length.");
-            publish_ota_progress("error", 0, "Unknown content length");
+            lcd.clear();
+            lcd.print("OTA Failed!");
         }
     } else {
-        Serial.printf("HTTP GET failed, error code: %d\n", httpCode);
-        publish_ota_progress("error", 0, "HTTP GET failed");
+        lcd.clear();
+        lcd.print("Download Fail!");
     }
-    http.end();
-    lcd.clear();
-    lcd.print("Update Failed!");
-    lcd.setCursor(0, 1);
-    lcd.print("Check Serial Mon.");
-    publish_firmware_status("failed");
-    send_notification("error", "Firmware update failed.");
-    delay(5000);
-    currentState = STATE_NORMAL_OPERATION;
+    SPIFFS.remove(localPath); // Hapus file setelah update
 }
