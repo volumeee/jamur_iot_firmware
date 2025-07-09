@@ -790,8 +790,9 @@ void publish_ota_update(String url) {
     HTTPClient http;
     http.begin(url);
     int httpCode = http.GET();
+    int contentLength = http.getSize();
+    Serial.printf("HTTP GET code: %d, Content-Length: %d\n", httpCode, contentLength);
     if (httpCode == HTTP_CODE_OK) {
-        int contentLength = http.getSize();
         if (contentLength > 0) {
             if ((uint32_t)ESP.getFreeSketchSpace() < (uint32_t)contentLength) {
                 Serial.println("Not enough free space for OTA update.");
