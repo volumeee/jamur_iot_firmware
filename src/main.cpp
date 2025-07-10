@@ -35,21 +35,34 @@ AppState currentState = STATE_BOOTING;
 
 float currentHumidity = 0.0, currentTemperature = 0.0;
 bool isPumpOn = false;
-char mqttClientId[40];
+char mqttClientId[MQTT_CLIENT_ID_LENGTH];
 
 unsigned long lastLogicCheckTime = 0, lastWifiSignalPublishTime = 0, pumpStopTime = 0;
 int lastScheduledHour = -1;
 unsigned long btnOkPressTime = 0;
 bool okButtonLongPress = false;
-bool isWarningZone = false;
 bool okButtonPressed = false;
 unsigned long lastPeriodicNotifTime = 0;
 unsigned long lastOkDebounceTime = 0;
 unsigned long lastMqttRetryTime = 0;
 FirmwareInfo newFirmware;
-bool newFirmwareAvailable = false;
 enum NotifState { NOTIF_NORMAL, NOTIF_WARNING, NOTIF_CRITICAL };
 NotifState lastNotifState = NOTIF_NORMAL;
+
+// Tambahkan variabel global untuk WiFi reconnect
+unsigned long lastWifiReconnectTime = 0;
+const unsigned long WIFI_RECONNECT_INTERVAL = WIFI_RECONNECT_DELAY; // 10 detik
+
+// Fungsi untuk cek dan reconnect WiFi jika terputus
+void check_and_reconnect_wifi() {
+    if (WiFi.status() != WL_CONNECTED && millis() - lastWifiReconnectTime > WIFI_RECONNECT_INTERVAL) {
+        Serial.println("WiFi terputus! Mencoba reconnect...");
+        lcd_show_message("WiFi Terputus!", "Reconnect...");
+        WiFi.disconnect();
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        lastWifiReconnectTime = millis();
+    }
+}
 
 // Publish MQTT dengan retry
 bool publish_with_retry(const char* topic, const char* payload, bool retained = false, int retry = NOTIF_RETRY_COUNT, int delayMs = NOTIF_RETRY_DELAY_MS) {
@@ -64,13 +77,13 @@ bool publish_with_retry(const char* topic, const char* payload, bool retained = 
 
 // Kirim notifikasi dalam format JSON
 void send_notification(const char* type, const char* message, float humidity = -1, float temperature = -1) {
-    char notifPayload[256];
+    char notifPayload[NOTIF_PAYLOAD_SIZE];
     if (humidity >= 0 && temperature >= 0) {
-        snprintf(notifPayload, sizeof(notifPayload),
+        snprintf(notifPayload, NOTIF_PAYLOAD_SIZE,
             "{\"type\":\"%s\", \"message\":\"%s\", \"humidity\":%.1f, \"temperature\":%.1f}",
             type, message, humidity, temperature);
     } else {
-        snprintf(notifPayload, sizeof(notifPayload),
+        snprintf(notifPayload, NOTIF_PAYLOAD_SIZE,
             "{\"type\":\"%s\", \"message\":\"%s\"}", type, message);
     }
     publish_with_retry(TOPICS.notification, notifPayload);
@@ -171,6 +184,12 @@ void check_for_firmware_update();
 void perform_ota_update(String url);
 
 // =================================================================
+//   FUNGSI UTILITAS
+// =================================================================
+void lcd_show_message(const char* line1, const char* line2);
+void pause_and_restart(unsigned long ms);
+
+// =================================================================
 //   IMPLEMENTASI FUNGSI
 // =================================================================
 //
@@ -209,10 +228,10 @@ void init_storage_and_wifi() {
     WiFi.mode(WIFI_AP_STA);
     String mac = WiFi.macAddress();
     mac.replace(":", "");
-    snprintf(mqttClientId, sizeof(mqttClientId), "%s%s", MQTT_CLIENT_ID_PREFIX, mac.substring(6).c_str());
+    snprintf(mqttClientId, MQTT_CLIENT_ID_LENGTH, "%s%s", MQTT_CLIENT_ID_PREFIX, mac.substring(6).c_str());
     Serial.printf("MQTT Client ID: %s\n", mqttClientId);
     Serial.println("Cek tombol BACK untuk mode AP (tahan saat boot)...");
-    delay(1000); 
+    delay(NTP_RETRY_DELAY); 
     if (digitalRead(BTN_BACK_PIN) == LOW) {
         currentState = STATE_AP_MODE;
         start_ap_mode();
@@ -251,7 +270,7 @@ void init_mqtt() {
     struct tm timeinfo;
     while (!getLocalTime(&timeinfo) || timeinfo.tm_year < (2022 - 1900)) {
         Serial.println("Gagal mendapatkan waktu, retry 1 detik...");
-        delay(1000);
+        delay(NTP_RETRY_DELAY);
     }
     Serial.println("Waktu tersinkron.");
     Serial.println("Setup koneksi TLS...");
@@ -286,6 +305,7 @@ void loop() {
             handle_connecting_state();
             break;
         case STATE_NORMAL_OPERATION:
+            check_and_reconnect_wifi();
             try_reconnect_mqtt();
             mqttClient.loop();
             handle_main_logic();
@@ -306,8 +326,8 @@ void handle_connecting_state() {
     display_connecting_wifi();
     Serial.printf("Mencoba koneksi ke WiFi: %s\n", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    for (int attempt = 0; attempt < 20 && WiFi.status() != WL_CONNECTED; attempt++) {
-        delay(500);
+    for (int attempt = 0; attempt < WIFI_CONNECT_ATTEMPTS && WiFi.status() != WL_CONNECTED; attempt++) {
+        delay(WIFI_CONNECT_DELAY);
         Serial.print(".");
     }
     if (WiFi.status() == WL_CONNECTED) {
@@ -317,12 +337,8 @@ void handle_connecting_state() {
         currentState = STATE_NORMAL_OPERATION;
     } else {
         Serial.printf("\nKoneksi WiFi gagal. Status: %d\n", WiFi.status());
-        lcd.clear();
-        lcd.print("Koneksi Gagal!");
-        lcd.setCursor(0, 1);
-        lcd.print("Tahan BACK u/AP");
-        delay(5000);
-        ESP.restart();
+        lcd_show_message("Koneksi Gagal!", "Tahan BACK u/AP");
+        pause_and_restart(ERROR_RESTART_DELAY);
     }
 }
 
@@ -394,8 +410,7 @@ void handle_web_save() {
         server.send(400, "text/html", "<h1>Gagal!</h1><p>Password terlalu panjang (maks 64 karakter).</p>");
         return;
     }
-    lcd.clear();
-    lcd.print("Menyimpan Data..");
+    lcd_show_message("Menyimpan Data..", "");
     Preferences prefs;
     prefs.begin("jamur-app", false);
     prefs.putString("wifi_ssid", new_ssid);
@@ -403,34 +418,26 @@ void handle_web_save() {
     prefs.end();
     Serial.printf("Kredensial baru disimpan: SSID=%s\n", new_ssid.c_str());
     server.send(200, "text/html", "<h1>Data Tersimpan!</h1><p>Perangkat akan restart dalam 5 detik...</p>");
-    delay(5000);
-    ESP.restart();
+    pause_and_restart(ERROR_RESTART_DELAY);
 }
 
 // =============================
 // == TAMPILAN LCD            ==
 // =============================
 void display_boot_screen() {
-    lcd.clear();
-    lcd.setCursor(0, 0); 
-    lcd.print("Jamur IoT ");
-    lcd.print(FIRMWARE_VERSION);
-    lcd.setCursor(0, 1); lcd.print("Booting...");
+    char line1[LCD_LINE_LENGTH];
+    snprintf(line1, LCD_LINE_LENGTH, "Jamur IoT %s", FIRMWARE_VERSION);
+    lcd_show_message(line1, "Booting...");
 }
 
 void display_connecting_wifi() {
-    lcd.clear();
-    lcd.setCursor(0, 0); lcd.print("Hubungkan WiFi:");
-    lcd.setCursor(0, 1); lcd.print(WIFI_SSID);
+    lcd_show_message("Hubungkan WiFi:", WIFI_SSID);
 }
 
 void display_ap_info(IPAddress ip) {
-    lcd.clear();
-    lcd.print("Mode Setup WiFi");
-    lcd.setCursor(0, 1);
-    char ipline[17];
-    snprintf(ipline, sizeof(ipline), "IP:%s", ip.toString().c_str());
-    lcd.print(ipline);
+    char ipline[LCD_LINE_LENGTH];
+    snprintf(ipline, LCD_LINE_LENGTH, "IP:%s", ip.toString().c_str());
+    lcd_show_message("Mode Setup WiFi", ipline);
 }
 
 void display_normal_info() {
@@ -440,23 +447,20 @@ void display_normal_info() {
     okButtonPressed = false;
     lcd.clear();
     lcd.setCursor(0, 0);
-    char line1[17];
-    snprintf(line1, sizeof(line1), "H:%.1f%% T:%.1fC", currentHumidity, currentTemperature);
+    char line1[LCD_LINE_LENGTH];
+    snprintf(line1, LCD_LINE_LENGTH, "H:%.1f%% T:%.1fC", currentHumidity, currentTemperature);
     lcd.print(line1);
     lcd.setCursor(0, 1);
-    char line2[17];
+    char line2[LCD_LINE_LENGTH];
     const char* pumpStatusStr = isPumpOn ? "ON " : "OFF";
-    snprintf(line2, sizeof(line2), "P:%s MQTT:%s", pumpStatusStr, mqttClient.connected() ? "OK" : "ERR");
+    snprintf(line2, LCD_LINE_LENGTH, "P:%s MQTT:%s", pumpStatusStr, mqttClient.connected() ? "OK" : "ERR");
     lcd.print(line2);
 }
 
 void display_menu_info() {
-    lcd.clear();
-    lcd.setCursor(0, 0); lcd.print("INFO PERANGKAT");
-    lcd.setCursor(0, 1);
-    char ipline[17];
-    snprintf(ipline, sizeof(ipline), "IP:%s", WiFi.localIP().toString().c_str());
-    lcd.print(ipline);
+    char ipline[LCD_LINE_LENGTH];
+    snprintf(ipline, LCD_LINE_LENGTH, "IP:%s", WiFi.localIP().toString().c_str());
+    lcd_show_message("INFO PERANGKAT", ipline);
 }
 
 // =============================
@@ -519,8 +523,8 @@ void handle_main_logic() {
     }
     if (millis() - lastPeriodicNotifTime >= NOTIF_PERIODIC_INTERVAL_MS) {
         lastPeriodicNotifTime = millis();
-        char msg[128];
-        snprintf(msg, sizeof(msg), "Periodic status: H=%.1f%%, T=%.1fC, Pump=%s", currentHumidity, currentTemperature, isPumpOn ? "ON" : "OFF");
+        char msg[PERIODIC_MSG_SIZE];
+        snprintf(msg, PERIODIC_MSG_SIZE, "Periodic status: H=%.1f%%, T=%.1fC, Pump=%s", currentHumidity, currentTemperature, isPumpOn ? "ON" : "OFF");
         send_notification("info", msg, currentHumidity, currentTemperature);
     }
 }
@@ -574,8 +578,8 @@ void run_scheduled_control(float humidity) {
                     turn_pump_on("scheduled");
                     send_notification("info", "Scheduled watering executed.", humidity, currentTemperature);
                 } else {
-                    char msg[128];
-                    snprintf(msg, sizeof(msg), "Scheduled watering at %d:00 skipped, humidity critical (%.1f%%).", currentHour, humidity);
+                    char msg[SCHEDULE_MSG_SIZE];
+                    snprintf(msg, SCHEDULE_MSG_SIZE, "Scheduled watering at %d:00 skipped, humidity critical (%.1f%%).", currentHour, humidity);
                     send_notification("info", msg, humidity, currentTemperature);
                 }
                 lastScheduledHour = currentHour;
@@ -591,8 +595,8 @@ void turn_pump_on(const char* reason) {
     pumpStopTime = millis() + PUMP_DURATION_MS;
     digitalWrite(PUMP_RELAY_PIN, HIGH);
     mqttClient.publish(TOPICS.status, "{\"state\":\"pumping\"}");
-    char msg[128];
-    snprintf(msg, sizeof(msg), "Pump turned ON (%s).", reason);
+    char msg[PUMP_MSG_SIZE];
+    snprintf(msg, PUMP_MSG_SIZE, "Pump turned ON (%s).", reason);
     send_notification("info", msg, currentHumidity, currentTemperature);
 }
 
@@ -631,7 +635,7 @@ void try_reconnect_mqtt() {
 }
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
-    payload[length] = '\0';
+    payload[length] = '\0'; 
     Serial.printf("Pesan diterima [%s]: %s\n", topic, (char*)payload);
     if (strcmp(topic, TOPICS.pump_control) == 0 && strcmp((char*)payload, "ON") == 0) {
         turn_pump_on("manual_mqtt");
@@ -685,19 +689,21 @@ void handle_config_update(byte* payload, unsigned int length) {
     publish_config();
 }
 
+
+
 // =================================================================
 //   FUNGSI KOMUNIKASI, MQTT, NOTIFIKASI, UTILITAS
 // =================================================================
 void publish_telemetry() {
-    char payload[100];
-    snprintf(payload, sizeof(payload), "{\"temperature\":%.2f, \"humidity\":%.2f}", currentTemperature, currentHumidity);
+    char payload[TELEMETRY_PAYLOAD_SIZE];
+    snprintf(payload, TELEMETRY_PAYLOAD_SIZE, "{\"temperature\":%.2f, \"humidity\":%.2f}", currentTemperature, currentHumidity);
     mqttClient.publish(TOPICS.telemetry, payload);
 }
 
 void publish_wifi_signal() {
     long rssi = WiFi.RSSI();
-    char payload[50];
-    snprintf(payload, sizeof(payload), "{\"rssi\":%ld}", rssi);
+    char payload[WIFI_SIGNAL_PAYLOAD_SIZE];
+    snprintf(payload, WIFI_SIGNAL_PAYLOAD_SIZE, "{\"rssi\":%ld}", rssi);
     mqttClient.publish(TOPICS.wifi_signal, payload, true);
 }
 
@@ -709,7 +715,7 @@ void publish_config() {
     for (int i = 0; i < config.schedule_count; i++) {
         schedules.add(config.schedule_hours[i]);
     }
-    char buffer[256];
+    char buffer[CONFIG_BUFFER_SIZE];
     serializeJson(doc, buffer);
     mqttClient.publish(TOPICS.config_get, buffer, true);
 }
@@ -717,7 +723,7 @@ void publish_config() {
 void publish_current_version() {
     JsonDocument doc;
     doc["version"] = FIRMWARE_VERSION;
-    char payload[50];
+    char payload[VERSION_PAYLOAD_SIZE];
     serializeJson(doc, payload);
     mqttClient.publish(TOPICS.firmware_current, payload, true); 
     Serial.printf("Versi firmware saat ini (%s) dipublikasikan.\n", FIRMWARE_VERSION);
@@ -727,7 +733,7 @@ void publish_firmware_status(const char* status) {
     JsonDocument doc;
     doc["status"] = status;
     doc["version"] = FIRMWARE_VERSION;
-    char payload[64];
+    char payload[FIRMWARE_STATUS_PAYLOAD_SIZE];
     serializeJson(doc, payload);
     mqttClient.publish(TOPICS.firmware_current, payload, true);
 }
@@ -737,7 +743,7 @@ void publish_firmware_update_progress(const char* stage, int progress, const cha
     doc["stage"] = stage;
     doc["progress"] = progress;
     if (message && strlen(message) > 0) doc["message"] = message;
-    char payload[128];
+    char payload[FIRMWARE_UPDATE_PAYLOAD_SIZE];
     serializeJson(doc, payload);
     mqttClient.publish(TOPICS.firmware_update, payload, true);
 }
@@ -784,14 +790,26 @@ void check_for_firmware_update() {
     }
 }
 
+void lcd_show_message(const char* line1, const char* line2) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(line1);
+    lcd.setCursor(0, 1);
+    lcd.print(line2);
+}
+
+void pause_and_restart(unsigned long ms) {
+    delay(ms);
+    ESP.restart();
+}
+
+
+
 // =================================================================
 //   FUNGSI OTA UPDATE
 // =================================================================
 void handle_ota_error(const char* lcdMsg, const char* logMsg, int code = 0) {
-    lcd.clear();
-    lcd.print("Update Failed!");
-    lcd.setCursor(0, 1);
-    lcd.print("Check Serial Mon.");
+    lcd_show_message("Update Failed!", "Check Serial Mon.");
     if (code)
         Serial.printf(logMsg, code);
     else
@@ -799,8 +817,7 @@ void handle_ota_error(const char* lcdMsg, const char* logMsg, int code = 0) {
     publish_firmware_status("failed");
     publish_firmware_update_progress("error", 0, lcdMsg);
     send_notification("error", lcdMsg);
-    delay(5000);
-    currentState = STATE_NORMAL_OPERATION;
+    pause_and_restart(ERROR_RESTART_DELAY);
 }
 
 void perform_ota_update(String url) {
@@ -808,10 +825,7 @@ void perform_ota_update(String url) {
     currentState = STATE_UPDATING;
     publish_firmware_status("updating");
     publish_firmware_update_progress("downloading", 0, "Memulai download firmware...");
-    lcd.clear();
-    lcd.print("Firmware Update");
-    lcd.setCursor(0, 1);
-    lcd.print("Downloading...");
+    lcd_show_message("Firmware Update", "Downloading...");
 
     HTTPClient http;
     http.begin(url);
@@ -823,18 +837,18 @@ void perform_ota_update(String url) {
         return;
     }
 
-        int contentLength = http.getSize();
+    int contentLength = http.getSize();
     if (contentLength <= 0) {
         handle_ota_error("Content length tidak diketahui.", "Unknown content length.");
         http.end();
         return;
     }
 
-            if ((uint32_t)ESP.getFreeSketchSpace() < (uint32_t)contentLength) {
+    if ((uint32_t)ESP.getFreeSketchSpace() < (uint32_t)contentLength) {
         handle_ota_error("Tidak cukup ruang untuk update.", "Not enough free space for OTA update.");
-                http.end();
-                return;
-            }
+        http.end();
+        return;
+    }
 
     if (!Update.begin(contentLength)) {
         handle_ota_error("Memori tidak cukup untuk update.", "Not enough memory for OTA.");
@@ -842,35 +856,36 @@ void perform_ota_update(String url) {
         return;
     }
 
-                WiFiClient& stream = http.getStream();
-                size_t written = 0;
-                uint8_t buff[512];
-                int lastPercent = 0;
-                unsigned long lastProgressTime = millis();
+    // Proses download dan tulis firmware
+    WiFiClient& stream = http.getStream();
+    size_t written = 0;
+    uint8_t buff[OTA_BUFFER_SIZE];
+    int lastPercent = 0;
+    unsigned long lastProgressTime = millis();
 
-                while (written < (size_t)contentLength) {
-                    size_t toRead = sizeof(buff);
-                    if ((contentLength - written) < toRead) toRead = contentLength - written;
-                    int bytesRead = stream.readBytes(buff, toRead);
+    while (written < (size_t)contentLength) {
+        size_t toRead = OTA_BUFFER_SIZE;
+        if ((contentLength - written) < toRead) toRead = contentLength - written;
+        int bytesRead = stream.readBytes(buff, toRead);
         if (bytesRead <= 0) {
             handle_ota_error("Gagal membaca stream data.", "Stream read error!");
             Update.abort();
             http.end();
             return;
         }
-                        if (Update.write(buff, bytesRead) != bytesRead) {
+        if (Update.write(buff, bytesRead) != bytesRead) {
             handle_ota_error("Gagal menulis data ke flash.", "Update write error!");
             Update.abort();
             http.end();
             return;
-                        }
-                        written += bytesRead;
-                        int percent = (int)(100.0 * written / contentLength);
-                        if (percent != lastPercent && millis() - lastProgressTime > 200) {
-                            publish_firmware_update_progress("downloading", percent, "Downloading...");
-                            lastPercent = percent;
-                            lastProgressTime = millis();
-                        }
+        }
+        written += bytesRead;
+        int percent = (int)(100.0 * written / contentLength);
+        if (percent != lastPercent && millis() - lastProgressTime > 200) {
+            publish_firmware_update_progress("downloading", percent, "Downloading...");
+            lastPercent = percent;
+            lastProgressTime = millis();
+        }
     }
 
     if (written != (size_t)contentLength) {
@@ -880,8 +895,8 @@ void perform_ota_update(String url) {
         return;
     }
 
-                    Serial.println("Firmware download successful.");
-                    publish_firmware_update_progress("installing", 100, "Menginstall firmware...");
+    Serial.println("Firmware download successful.");
+    publish_firmware_update_progress("installing", 100, "Menginstall firmware...");
 
     if (!Update.end() || !Update.isFinished()) {
         handle_ota_error("Gagal menyelesaikan update.", "Failed to finish update.");
@@ -889,15 +904,11 @@ void perform_ota_update(String url) {
         return;
     }
 
-                        Serial.println("Update successful! Restarting...");
-                        lcd.clear();
-                        lcd.print("Update Success!");
-                        lcd.setCursor(0, 1);
-                        lcd.print("Restarting...");
-                        publish_firmware_status("updated");
-                        publish_firmware_update_progress("finished", 100, "Update selesai, restart...");
-                        send_notification("info", "Firmware updated successfully.");
+    Serial.println("Update successful! Restarting...");
+    lcd_show_message("Update Success!", "Restarting...");
+    publish_firmware_status("updated");
+    publish_firmware_update_progress("finished", 100, "Update selesai, restart...");
+    send_notification("info", "Firmware updated successfully.");
     http.end();
-                        delay(2000);
-                        ESP.restart();
+    pause_and_restart(2000);
 }
