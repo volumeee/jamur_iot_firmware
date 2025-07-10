@@ -690,7 +690,6 @@ void handle_config_update(byte* payload, unsigned int length) {
 }
 
 
-
 // =================================================================
 //   FUNGSI KOMUNIKASI, MQTT, NOTIFIKASI, UTILITAS
 // =================================================================
