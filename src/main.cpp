@@ -145,6 +145,7 @@ void handle_web_save();
 // =================================================================
 void display_boot_screen();
 void display_connecting_wifi();
+void display_wifi_failed();
 void display_ap_info(IPAddress ip);
 void display_normal_info();
 void display_menu_info();
@@ -337,8 +338,10 @@ void handle_connecting_state() {
         currentState = STATE_NORMAL_OPERATION;
     } else {
         Serial.printf("\nKoneksi WiFi gagal. Status: %d\n", WiFi.status());
-        lcd_show_message("Koneksi Gagal!", "Tahan BACK u/AP");
-        pause_and_restart(ERROR_RESTART_DELAY);
+        Serial.println("Masuk ke mode AP untuk konfigurasi WiFi...");
+        display_wifi_failed();
+        currentState = STATE_AP_MODE;
+        start_ap_mode();
     }
 }
 
@@ -383,31 +386,52 @@ void handle_web_root() {
     String html = "<html><head><title>Jamur IoT Setup</title>";
     html += "<meta name='viewport' content='width=device-width, initial-scale=1'></head>";
     html += "<style>body{font-family: Arial, sans-serif; text-align: center; margin: 20px; background-color: #f4f4f4;}";
-    html += "div{background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}";
+    html += "div{background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;}";
     html += "input{width: calc(100% - 22px); padding: 10px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #ccc;}";
-    html += "button{padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;}</style>";
-    html += "<body><div><h1>Konfigurasi WiFi Jamur IoT</h1>";
+    html += "button{padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; margin: 5px;}";
+    html += ".info{background-color: #e7f3ff; border-left: 4px solid #007bff; padding: 10px; margin: 10px 0; text-align: left;}";
+    html += ".warning{background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; margin: 10px 0; text-align: left;}</style>";
+    html += "<body><div><h1>🌱 Konfigurasi WiFi Jamur IoT</h1>";
+    html += "<div class='info'><strong>Info:</strong> Perangkat tidak dapat terhubung ke WiFi yang tersimpan. Silakan masukkan kredensial WiFi yang benar.</div>";
     html += "<form action='/save' method='post'>";
     html += "<input type='text' name='ssid' placeholder='Nama WiFi (SSID)' required><br>";
     html += "<input type='password' name='pass' placeholder='Password WiFi'><br>";
-    html += "<button type='submit'>Simpan & Reboot</button>";
-    html += "</form></div></body></html>";
+    html += "<button type='submit'>💾 Simpan & Reboot</button>";
+    html += "</form>";
+    html += "<div class='warning'><strong>Catatan:</strong> Setelah menyimpan, perangkat akan restart dan mencoba terhubung ke WiFi baru.</div>";
+    html += "</div></body></html>";
     server.send(200, "text/html", html);
 }
 
 void handle_web_save() {
     String new_ssid = server.arg("ssid");
     String new_pass = server.arg("pass");
+    String errorHtml = "<html><head><title>Error - Jamur IoT</title>";
+    errorHtml += "<meta name='viewport' content='width=device-width, initial-scale=1'></head>";
+    errorHtml += "<style>body{font-family: Arial, sans-serif; text-align: center; margin: 20px; background-color: #f4f4f4;}";
+    errorHtml += "div{background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}";
+    errorHtml += ".error{background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 10px; margin: 10px 0; text-align: left;}";
+    errorHtml += "button{padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;}</style>";
+    
     if (new_ssid.length() == 0) {
-        server.send(400, "text/html", "<h1>Gagal!</h1><p>SSID tidak boleh kosong.</p>");
+        errorHtml += "<body><div><h1>❌ Gagal!</h1>";
+        errorHtml += "<div class='error'><strong>Error:</strong> SSID tidak boleh kosong.</div>";
+        errorHtml += "<button onclick='history.back()'>← Kembali</button></div></body></html>";
+        server.send(400, "text/html", errorHtml);
         return;
     }
     if (new_ssid.length() > 32) {
-        server.send(400, "text/html", "<h1>Gagal!</h1><p>SSID terlalu panjang (maks 32 karakter).</p>");
+        errorHtml += "<body><div><h1>❌ Gagal!</h1>";
+        errorHtml += "<div class='error'><strong>Error:</strong> SSID terlalu panjang (maks 32 karakter).</div>";
+        errorHtml += "<button onclick='history.back()'>← Kembali</button></div></body></html>";
+        server.send(400, "text/html", errorHtml);
         return;
     }
     if (new_pass.length() > 64) {
-        server.send(400, "text/html", "<h1>Gagal!</h1><p>Password terlalu panjang (maks 64 karakter).</p>");
+        errorHtml += "<body><div><h1>❌ Gagal!</h1>";
+        errorHtml += "<div class='error'><strong>Error:</strong> Password terlalu panjang (maks 64 karakter).</div>";
+        errorHtml += "<button onclick='history.back()'>← Kembali</button></div></body></html>";
+        server.send(400, "text/html", errorHtml);
         return;
     }
     lcd_show_message("Menyimpan Data..", "");
@@ -417,7 +441,17 @@ void handle_web_save() {
     prefs.putString("wifi_pass", new_pass);
     prefs.end();
     Serial.printf("Kredensial baru disimpan: SSID=%s\n", new_ssid.c_str());
-    server.send(200, "text/html", "<h1>Data Tersimpan!</h1><p>Perangkat akan restart dalam 5 detik...</p>");
+    String successHtml = "<html><head><title>Berhasil - Jamur IoT</title>";
+    successHtml += "<meta name='viewport' content='width=device-width, initial-scale=1'></head>";
+    successHtml += "<style>body{font-family: Arial, sans-serif; text-align: center; margin: 20px; background-color: #f4f4f4;}";
+    successHtml += "div{background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}";
+    successHtml += ".success{background-color: #d4edda; border-left: 4px solid #28a745; padding: 10px; margin: 10px 0; text-align: left;}</style>";
+    successHtml += "<body><div><h1>✅ Data Tersimpan!</h1>";
+    successHtml += "<div class='success'><strong>Berhasil:</strong> Kredensial WiFi baru telah disimpan.</div>";
+    successHtml += "<p>Perangkat akan restart dalam 5 detik dan mencoba terhubung ke WiFi baru.</p>";
+    successHtml += "<p><small>SSID: " + new_ssid + "</small></p>";
+    successHtml += "</div></body></html>";
+    server.send(200, "text/html", successHtml);
     pause_and_restart(ERROR_RESTART_DELAY);
 }
 
@@ -434,10 +468,25 @@ void display_connecting_wifi() {
     lcd_show_message("Hubungkan WiFi:", WIFI_SSID);
 }
 
+void display_wifi_failed() {
+    lcd_show_message("WiFi Gagal!", "Masuk Mode AP");
+    delay(2000);
+    lcd_show_message("Hubungkan ke:", AP_SSID);
+    delay(2000);
+}
+
 void display_ap_info(IPAddress ip) {
     char ipline[LCD_LINE_LENGTH];
     snprintf(ipline, LCD_LINE_LENGTH, "IP:%s", ip.toString().c_str());
     lcd_show_message("Mode Setup WiFi", ipline);
+    
+    // Tampilkan informasi tambahan di Serial
+    Serial.println("=== MODE ACCESS POINT ===");
+    Serial.printf("SSID: %s\n", AP_SSID);
+    Serial.printf("Password: %s\n", AP_PASSWORD);
+    Serial.printf("IP Address: %s\n", ip.toString().c_str());
+    Serial.println("Hubungkan ke WiFi di atas dan buka browser ke IP address tersebut");
+    Serial.println("untuk mengkonfigurasi WiFi baru.");
 }
 
 void display_normal_info() {
