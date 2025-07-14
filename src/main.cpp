@@ -49,8 +49,7 @@ unsigned long lastMqttRetryTime = 0;
 FirmwareInfo newFirmware;
 enum NotifState { NOTIF_NORMAL, NOTIF_WARNING, NOTIF_CRITICAL };
 NotifState lastNotifState = NOTIF_NORMAL;
-
-// Tambahkan variabel global untuk WiFi reconnect
+unsigned long lastSpeedtestTime = 0;
 unsigned long lastWifiReconnectTime = 0;
 const unsigned long WIFI_RECONNECT_INTERVAL = WIFI_RECONNECT_DELAY; // 10 detik
 
@@ -1080,5 +1079,3 @@ void run_and_publish_speedtest() {
     publish_speedtest(ping, download, upload);
     Serial.printf("Speedtest: ping=%.2f ms, download=%.2f Mbps, upload=%.2f Mbps\n", ping, download, upload);
 }
-
-unsigned long lastSpeedtestTime = 0;
