@@ -349,9 +349,17 @@ void handle_normal_operation() {
     if (!mqttClient.connected() && millis() - lastMqttRetryTime > MQTT_RETRY_INTERVAL) {
         lastMqttRetryTime = millis();
         Serial.print("Mencoba koneksi MQTT (TLS)...");
-        if (mqttClient.connect(mqttClientId, MQTT_USER, MQTT_PASSWORD, TOPICS.status, 1, true, "{\"state\":\"offline\"}")) {
+        if (mqttClient.connect(
+                mqttClientId,
+                MQTT_USER,
+                MQTT_PASSWORD,
+                TOPICS.status, // LWT topic
+                1,             // QoS
+                true,          // retained
+                "{\"state\":\"offline\"}" // LWT payload
+            )) {
             Serial.println("terhubung!");
-            mqttClient.publish(TOPICS.status, "{\"state\":\"online\"}");
+            mqttClient.publish(TOPICS.status, "{\"state\":\"online\"}", true); // Retained!
             mqttClient.subscribe(TOPICS.pump_control);
             mqttClient.subscribe(TOPICS.config_set);
             mqttClient.subscribe(TOPICS.system_update);
@@ -575,6 +583,7 @@ void handle_main_logic() {
         char msg[PERIODIC_MSG_SIZE];
         snprintf(msg, PERIODIC_MSG_SIZE, "Periodic status: H=%.1f%%, T=%.1fC, Pump=%s", currentHumidity, currentTemperature, isPumpOn ? "ON" : "OFF");
         send_notification("info", msg, currentHumidity, currentTemperature);
+        publish_online_status(); // Update status online bersamaan dengan periodic status
     }
 }
 
@@ -664,9 +673,17 @@ void try_reconnect_mqtt() {
     if (!mqttClient.connected() && millis() - lastMqttRetryTime > MQTT_RETRY_INTERVAL) {
         lastMqttRetryTime = millis();
         Serial.print("Mencoba koneksi MQTT (TLS)...");
-        if (mqttClient.connect(mqttClientId, MQTT_USER, MQTT_PASSWORD, TOPICS.status, 1, true, "{\"state\":\"offline\"}")) {
+        if (mqttClient.connect(
+                mqttClientId,
+                MQTT_USER,
+                MQTT_PASSWORD,
+                TOPICS.status, // LWT topic
+                1,             // QoS
+                true,          // retained
+                "{\"state\":\"offline\"}" // LWT payload
+            )) {
             Serial.println("terhubung!");
-            mqttClient.publish(TOPICS.status, "{\"state\":\"online\"}");
+            mqttClient.publish(TOPICS.status, "{\"state\":\"online\"}", true); // Retained!
             mqttClient.subscribe(TOPICS.pump_control);
             mqttClient.subscribe(TOPICS.config_set);
             mqttClient.subscribe(TOPICS.system_update);
@@ -959,4 +976,9 @@ void perform_ota_update(String url) {
     send_notification("info", "Firmware updated successfully.");
     http.end();
     pause_and_restart(2000);
+}
+
+// Tambahkan fungsi untuk publish status online secara periodic
+void publish_online_status() {
+    mqttClient.publish(TOPICS.status, "{\"state\":\"online\"}", true);
 }
