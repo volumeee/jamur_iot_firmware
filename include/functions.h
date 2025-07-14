@@ -94,3 +94,4 @@ void pause_and_restart(unsigned long ms);
 void display_wifi_failed();
 void publish_online_status();
 void publish_speedtest(float ping_ms, float download_mbps, float upload_mbps);
+void run_and_publish_speedtest();
