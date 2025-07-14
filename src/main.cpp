@@ -584,7 +584,6 @@ void handle_main_logic() {
         char msg[PERIODIC_MSG_SIZE];
         snprintf(msg, PERIODIC_MSG_SIZE, "Periodic status: H=%.1f%%, T=%.1fC, Pump=%s", currentHumidity, currentTemperature, isPumpOn ? "ON" : "OFF");
         send_notification("info", msg, currentHumidity, currentTemperature);
-        publish_online_status(); // Update status online bersamaan dengan periodic status
     }
 }
 

@@ -6,7 +6,7 @@
 // ==      FILE KONFIGURASI PROYEK JAMUR IOT               ==
 // ==========================================================
 
-#define FIRMWARE_VERSION "v26.4"
+#define FIRMWARE_VERSION "v26.5"
 
 // --- KONFIGURASI PERANGKAT KERAS LOKAL (Layar & Tombol) ---
 #define LCD_ADDRESS 0x27
@@ -129,4 +129,4 @@ const char* SUPABASE_KEY = SECRET_SUPABASE_KEY;
 #define PUMP_MSG_SIZE 128 
 
 // Tambahkan pengaturan keep-alive MQTT
-const int MQTT_KEEP_ALIVE_SEC = 1; 
+const int MQTT_KEEP_ALIVE_SEC = 10; // Best practice untuk WiFi 
