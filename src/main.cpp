@@ -277,6 +277,7 @@ void init_mqtt() {
     Serial.println("Setup koneksi TLS...");
     espClient.setCACert(HIVE_MQ_ROOT_CA);
     mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
+    mqttClient.setKeepAlive(MQTT_KEEP_ALIVE_SEC); // Set keep-alive interval dari config.h
     mqttClient.setCallback(mqtt_callback);
 }
 
