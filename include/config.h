@@ -6,7 +6,7 @@
 // ==      FILE KONFIGURASI PROYEK JAMUR IOT               ==
 // ==========================================================
 
-#define FIRMWARE_VERSION "v26.5"
+#define FIRMWARE_VERSION "v26.6"
 
 // --- KONFIGURASI PERANGKAT KERAS LOKAL (Layar & Tombol) ---
 #define LCD_ADDRESS 0x27
