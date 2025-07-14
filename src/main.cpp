@@ -886,96 +886,108 @@ void handle_ota_error(const char* lcdMsg, const char* logMsg, int code = 0) {
 }
 
 void perform_ota_update(String url) {
-    Serial.printf("Received OTA Update command. URL: %s\n", url.c_str());
-    currentState = STATE_UPDATING;
-    publish_firmware_status("updating");
-    publish_firmware_update_progress("downloading", 0, "Memulai download firmware...");
-    lcd_show_message("Firmware Update", "Downloading...");
+    int retry = 0;
+    bool success = false;
 
-    HTTPClient http;
-    http.begin(url);
-    int httpCode = http.GET();
+    while (retry < OTA_MAX_RETRY && !success) {
+        HTTPClient http;
+        http.setTimeout(OTA_HTTP_TIMEOUT_MS); // Timeout dari config.h
+        http.begin(url);
+        int httpCode = http.GET();
 
-    if (httpCode != HTTP_CODE_OK) {
-        handle_ota_error("HTTP GET gagal.", "HTTP GET failed, error code: %d", httpCode);
-        http.end();
-        return;
-    }
+        if (httpCode != HTTP_CODE_OK) {
+            Serial.printf("OTA HTTP GET gagal (percobaan %d), code: %d\n", retry+1, httpCode);
+            http.end();
+            retry++;
+            delay(2000);
+            continue;
+        }
 
-    int contentLength = http.getSize();
-    if (contentLength <= 0) {
-        handle_ota_error("Content length tidak diketahui.", "Unknown content length.");
-        http.end();
-        return;
-    }
+        int contentLength = http.getSize();
+        if (contentLength <= 0) {
+            Serial.println("Content length tidak diketahui.");
+            http.end();
+            retry++;
+            delay(2000);
+            continue;
+        }
 
-    if ((uint32_t)ESP.getFreeSketchSpace() < (uint32_t)contentLength) {
-        handle_ota_error("Tidak cukup ruang untuk update.", "Not enough free space for OTA update.");
-        http.end();
-        return;
-    }
+        if ((uint32_t)ESP.getFreeSketchSpace() < (uint32_t)contentLength) {
+            Serial.println("Tidak cukup ruang untuk update.");
+            http.end();
+            break;
+        }
 
-    if (!Update.begin(contentLength)) {
-        handle_ota_error("Memori tidak cukup untuk update.", "Not enough memory for OTA.");
-        http.end();
-        return;
-    }
+        if (!Update.begin(contentLength)) {
+            Serial.println("Memori tidak cukup untuk update.");
+            http.end();
+            retry++;
+            delay(2000);
+            continue;
+        }
 
-    // Proses download dan tulis firmware
-    WiFiClient& stream = http.getStream();
-    size_t written = 0;
-    uint8_t buff[OTA_BUFFER_SIZE];
-    int lastPercent = 0;
-    unsigned long lastProgressTime = millis();
+        WiFiClient& stream = http.getStream();
+        size_t written = 0;
+        uint8_t buff[OTA_BUFFER_SIZE];
+        int lastPercent = 0;
+        unsigned long lastProgressTime = millis();
+        bool streamError = false;
 
-    while (written < (size_t)contentLength) {
-        size_t toRead = OTA_BUFFER_SIZE;
-        if ((contentLength - written) < toRead) toRead = contentLength - written;
-        int bytesRead = stream.readBytes(buff, toRead);
-        if (bytesRead <= 0) {
-            handle_ota_error("Gagal membaca stream data.", "Stream read error!");
+        while (written < (size_t)contentLength) {
+            size_t toRead = OTA_BUFFER_SIZE;
+            if ((contentLength - written) < toRead) toRead = contentLength - written;
+            int bytesRead = stream.readBytes(buff, toRead);
+            if (bytesRead <= 0) {
+                Serial.println("Gagal membaca stream data, coba ulang...");
+                Update.abort();
+                http.end();
+                retry++;
+                delay(2000);
+                streamError = true;
+                break;
+            }
+            if (Update.write(buff, bytesRead) != bytesRead) {
+                Serial.println("Gagal menulis data ke flash, coba ulang...");
+                Update.abort();
+                http.end();
+                retry++;
+                delay(2000);
+                streamError = true;
+                break;
+            }
+            written += bytesRead;
+            int percent = (int)(100.0 * written / contentLength);
+            if (percent != lastPercent && millis() - lastProgressTime > 200) {
+                publish_firmware_update_progress("downloading", percent, "Downloading...");
+                lastPercent = percent;
+                lastProgressTime = millis();
+            }
+        }
+
+        if (!streamError && written == (size_t)contentLength && Update.end() && Update.isFinished()) {
+            Serial.println("Update successful! Restarting...");
+            lcd_show_message("Update Success!", "Restarting...");
+            publish_firmware_status("updated");
+            publish_firmware_update_progress("finished", 100, "Update selesai, restart...");
+            send_notification("info", "Firmware updated successfully.");
+            http.end();
+            delay(2000);
+            ESP.restart();
+            success = true;
+        } else if (!streamError) {
+            Serial.println("Update gagal menyelesaikan proses, coba ulang...");
             Update.abort();
             http.end();
-            return;
-        }
-        if (Update.write(buff, bytesRead) != bytesRead) {
-            handle_ota_error("Gagal menulis data ke flash.", "Update write error!");
-            Update.abort();
-            http.end();
-            return;
-        }
-        written += bytesRead;
-        int percent = (int)(100.0 * written / contentLength);
-        if (percent != lastPercent && millis() - lastProgressTime > 200) {
-            publish_firmware_update_progress("downloading", percent, "Downloading...");
-            lastPercent = percent;
-            lastProgressTime = millis();
+            retry++;
+            delay(2000);
         }
     }
-
-    if (written != (size_t)contentLength) {
-        handle_ota_error("Download tidak lengkap.", "Firmware download failed, size mismatch. Written: %d", written);
-        Update.abort();
-        http.end();
-        return;
+    if (!success) {
+        lcd_show_message("OTA Gagal!", "Cek WiFi/Server");
+        Serial.println("OTA gagal setelah beberapa percobaan.");
+        delay(10000); // Delay lebih lama sebelum restart
+        ESP.restart();
     }
-
-    Serial.println("Firmware download successful.");
-    publish_firmware_update_progress("installing", 100, "Menginstall firmware...");
-
-    if (!Update.end() || !Update.isFinished()) {
-        handle_ota_error("Gagal menyelesaikan update.", "Failed to finish update.");
-        http.end();
-        return;
-    }
-
-    Serial.println("Update successful! Restarting...");
-    lcd_show_message("Update Success!", "Restarting...");
-    publish_firmware_status("updated");
-    publish_firmware_update_progress("finished", 100, "Update selesai, restart...");
-    send_notification("info", "Firmware updated successfully.");
-    http.end();
-    pause_and_restart(2000);
 }
 
 // Tambahkan fungsi untuk publish status online secara periodic

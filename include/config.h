@@ -6,7 +6,7 @@
 // ==      FILE KONFIGURASI PROYEK JAMUR IOT               ==
 // ==========================================================
 
-#define FIRMWARE_VERSION "v26.6"
+#define FIRMWARE_VERSION "v26.7"
 
 // --- KONFIGURASI PERANGKAT KERAS LOKAL (Layar & Tombol) ---
 #define LCD_ADDRESS 0x27
@@ -110,7 +110,9 @@ const char* SUPABASE_KEY = SECRET_SUPABASE_KEY;
 
 // --- KONSTANTA MAGIC NUMBER & BUFFER ---
 #define LCD_LINE_LENGTH 17
-#define OTA_BUFFER_SIZE 512
+#define OTA_BUFFER_SIZE 2048 // Buffer download OTA (default 2048, bisa disesuaikan)
+#define OTA_MAX_RETRY 3      // Jumlah maksimal percobaan OTA
+#define OTA_HTTP_TIMEOUT_MS 30000 // Timeout HTTP OTA (ms)
 #define PERIODIC_MSG_SIZE 128
 #define WIFI_RECONNECT_DELAY 10000UL
 #define WIFI_CONNECT_ATTEMPTS 20
