@@ -874,6 +874,18 @@ void pause_and_restart(unsigned long ms) {
     ESP.restart();
 }
 
+void publish_online_status() {
+    mqttClient.publish(TOPICS.status, "{\"state\":\"online\"}", true);
+}
+
+void publish_speedtest(float ping_ms, float download_mbps, float upload_mbps) {
+    char payload[196];
+    snprintf(payload, sizeof(payload),
+        "{\"ping_ms\":%.2f,\"download_mbps\":%.2f,\"upload_mbps\":%.2f,\"lat\":%.6f,\"lon\":%.6f}",
+        ping_ms, download_mbps, upload_mbps, DEVICE_LATITUDE, DEVICE_LONGITUDE);
+    mqttClient.publish(TOPICS.speedtest, payload, true);
+}
+
 
 
 // =================================================================
@@ -996,19 +1008,6 @@ void perform_ota_update(String url) {
     }
 }
 
-// Tambahkan fungsi untuk publish status online secara periodic
-void publish_online_status() {
-    mqttClient.publish(TOPICS.status, "{\"state\":\"online\"}", true);
-}
-
-// Publish hasil speedtest ke MQTT
-void publish_speedtest(float ping_ms, float download_mbps, float upload_mbps) {
-    char payload[196];
-    snprintf(payload, sizeof(payload),
-        "{\"ping_ms\":%.2f,\"download_mbps\":%.2f,\"upload_mbps\":%.2f,\"lat\":%.6f,\"lon\":%.6f}",
-        ping_ms, download_mbps, upload_mbps, DEVICE_LATITUDE, DEVICE_LONGITUDE);
-    mqttClient.publish(TOPICS.speedtest, payload, true);
-}
 
 // =============================
 // == FUNGSI SPEEDTEST OTOMATIS ==
@@ -1059,15 +1058,18 @@ float speedtest_upload_mbps(const char* url = SPEEDTEST_UPLOAD_URL, size_t test_
     HTTPClient http;
     http.setTimeout(OTA_HTTP_TIMEOUT_MS);
     http.begin(url);
-    String payload = String('A', test_size);
+    char* payload = new char[test_size + 1];
+    memset(payload, 'A', test_size);
+    payload[test_size] = '\0';
     unsigned long start = millis();
-    int httpCode = http.POST(payload);
+    int httpCode = http.POST((uint8_t*)payload, test_size);
     unsigned long elapsed = millis() - start;
     float mbps = -1.0f;
     if (httpCode > 0 && elapsed > 0) {
         mbps = (test_size * 8.0f / 1000000.0f) / (elapsed / 1000.0f); // Mbps
     }
     http.end();
+    delete[] payload;
     return mbps;
 }
 
