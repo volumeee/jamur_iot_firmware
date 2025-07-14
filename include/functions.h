@@ -92,3 +92,4 @@ void publish_firmware_update_progress(const char* stage, int progress, const cha
 void lcd_show_message(const char* line1, const char* line2);
 void pause_and_restart(unsigned long ms);
 void display_wifi_failed();
+void publish_online_status();
