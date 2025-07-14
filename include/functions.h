@@ -93,3 +93,4 @@ void lcd_show_message(const char* line1, const char* line2);
 void pause_and_restart(unsigned long ms);
 void display_wifi_failed();
 void publish_online_status();
+void publish_speedtest(float ping_ms, float download_mbps, float upload_mbps);

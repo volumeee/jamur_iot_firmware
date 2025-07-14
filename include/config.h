@@ -6,7 +6,7 @@
 // ==      FILE KONFIGURASI PROYEK JAMUR IOT               ==
 // ==========================================================
 
-#define FIRMWARE_VERSION "v26.8"
+#define FIRMWARE_VERSION "v26.9"
 
 // --- KONFIGURASI PERANGKAT KERAS LOKAL (Layar & Tombol) ---
 #define LCD_ADDRESS 0x27
@@ -83,6 +83,7 @@ struct MqttTopics {
     const char* firmware_current = "jamur/firmware/current"; 
     const char* firmware_new = "jamur/firmware/new_available";
     const char* firmware_update = "jamur/firmware/update"; 
+    const char* speedtest = "jamur/speedtest"; 
 };
 const MqttTopics TOPICS; 
 
@@ -108,6 +109,21 @@ const unsigned long MQTT_RETRY_INTERVAL = 5000; // 5 detik
 const char* SUPABASE_URL = SECRET_SUPABASE_URL;
 const char* SUPABASE_KEY = SECRET_SUPABASE_KEY; 
 
+// --- KEEP ALIVE MQTT STATUS ---
+const int MQTT_KEEP_ALIVE_SEC = 10; 
+
+// --- KONFIGURASI SPEEDTEST ---
+#define SPEEDTEST_INTERVAL_MS 600000 // 10 menit
+#define SPEEDTEST_DOWNLOAD_URL "http://speedtest.tele2.net/1MB.zip"
+#define SPEEDTEST_DOWNLOAD_SIZE (1024 * 100) // 100 KB
+#define SPEEDTEST_UPLOAD_URL "http://httpbin.org/post"
+#define SPEEDTEST_UPLOAD_SIZE (1024 * 10) // 10 KB
+#define SPEEDTEST_RSSI_THRESHOLD -70 // Jika sinyal di bawah ini, lakukan speedtest
+
+// --- KOORDINAT LOKASI PERANGKAT (EDIT SESUAI LOKASI) ---
+#define DEVICE_LATITUDE  -7.797068   // Contoh: Yogyakarta
+#define DEVICE_LONGITUDE 110.370529  // Contoh: Yogyakarta
+
 // --- KONSTANTA MAGIC NUMBER & BUFFER ---
 #define LCD_LINE_LENGTH 17
 #define OTA_BUFFER_SIZE 2048 // Buffer download OTA (default 2048, bisa disesuaikan)
@@ -129,6 +145,3 @@ const char* SUPABASE_KEY = SECRET_SUPABASE_KEY;
 #define FIRMWARE_UPDATE_PAYLOAD_SIZE 128
 #define SCHEDULE_MSG_SIZE 128
 #define PUMP_MSG_SIZE 128 
-
-// Tambahkan pengaturan keep-alive MQTT
-const int MQTT_KEEP_ALIVE_SEC = 10; // Best practice untuk WiFi 

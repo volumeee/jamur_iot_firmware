@@ -16,6 +16,7 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <Update.h>
+#include <WiFiClient.h>
 
 #include "config.h"
 #include "functions.h"
@@ -585,6 +586,11 @@ void handle_main_logic() {
         snprintf(msg, PERIODIC_MSG_SIZE, "Periodic status: H=%.1f%%, T=%.1fC, Pump=%s", currentHumidity, currentTemperature, isPumpOn ? "ON" : "OFF");
         send_notification("info", msg, currentHumidity, currentTemperature);
     }
+    long rssi = WiFi.RSSI();
+    if ((millis() - lastSpeedtestTime >= SPEEDTEST_INTERVAL_MS) || (rssi < SPEEDTEST_RSSI_THRESHOLD)) {
+        lastSpeedtestTime = millis();
+        run_and_publish_speedtest();
+    }
 }
 
 void run_humidity_control_logic(float humidity) {
@@ -994,3 +1000,83 @@ void perform_ota_update(String url) {
 void publish_online_status() {
     mqttClient.publish(TOPICS.status, "{\"state\":\"online\"}", true);
 }
+
+// Publish hasil speedtest ke MQTT
+void publish_speedtest(float ping_ms, float download_mbps, float upload_mbps) {
+    char payload[196];
+    snprintf(payload, sizeof(payload),
+        "{\"ping_ms\":%.2f,\"download_mbps\":%.2f,\"upload_mbps\":%.2f,\"lat\":%.6f,\"lon\":%.6f}",
+        ping_ms, download_mbps, upload_mbps, DEVICE_LATITUDE, DEVICE_LONGITUDE);
+    mqttClient.publish(TOPICS.speedtest, payload, true);
+}
+
+// =============================
+// == FUNGSI SPEEDTEST OTOMATIS ==
+// =============================
+float speedtest_ping_ms(const char* host = "8.8.8.8", uint16_t port = 53, uint8_t count = 4) {
+    WiFiClient client;
+    unsigned long total = 0;
+    int success = 0;
+    for (uint8_t i = 0; i < count; i++) {
+        unsigned long start = millis();
+        if (client.connect(host, port)) {
+            unsigned long elapsed = millis() - start;
+            total += elapsed;
+            success++;
+            client.stop();
+        }
+        delay(100);
+    }
+    return (success > 0) ? (float)total / success : -1.0f;
+}
+
+float speedtest_download_mbps(const char* url = SPEEDTEST_DOWNLOAD_URL, size_t test_size = SPEEDTEST_DOWNLOAD_SIZE) {
+    HTTPClient http;
+    http.setTimeout(OTA_HTTP_TIMEOUT_MS);
+    http.begin(url);
+    unsigned long start = millis();
+    int httpCode = http.GET();
+    float mbps = -1.0f;
+    if (httpCode == HTTP_CODE_OK) {
+        WiFiClient* stream = http.getStreamPtr();
+        size_t total = 0;
+        uint8_t buf[256];
+        while (total < test_size) {
+            int len = stream->read(buf, sizeof(buf));
+            if (len <= 0) break;
+            total += len;
+        }
+        unsigned long elapsed = millis() - start;
+        if (elapsed > 0 && total > 0) {
+            mbps = (total * 8.0f / 1000000.0f) / (elapsed / 1000.0f); // Mbps
+        }
+    }
+    http.end();
+    return mbps;
+}
+
+float speedtest_upload_mbps(const char* url = SPEEDTEST_UPLOAD_URL, size_t test_size = SPEEDTEST_UPLOAD_SIZE) {
+    HTTPClient http;
+    http.setTimeout(OTA_HTTP_TIMEOUT_MS);
+    http.begin(url);
+    String payload = String('A', test_size);
+    unsigned long start = millis();
+    int httpCode = http.POST(payload);
+    unsigned long elapsed = millis() - start;
+    float mbps = -1.0f;
+    if (httpCode > 0 && elapsed > 0) {
+        mbps = (test_size * 8.0f / 1000000.0f) / (elapsed / 1000.0f); // Mbps
+    }
+    http.end();
+    return mbps;
+}
+
+void run_and_publish_speedtest() {
+    float ping = speedtest_ping_ms();
+    float download = speedtest_download_mbps();
+    float upload = speedtest_upload_mbps();
+    publish_speedtest(ping, download, upload);
+    Serial.printf("Speedtest: ping=%.2f ms, download=%.2f Mbps, upload=%.2f Mbps\n", ping, download, upload);
+}
+
+unsigned long lastSpeedtestTime = 0;
