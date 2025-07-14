@@ -1002,6 +1002,9 @@ void perform_ota_update(String url) {
     if (!success) {
         lcd_show_message("OTA Gagal!", "Cek WiFi/Server");
         Serial.println("OTA gagal setelah beberapa percobaan.");
+        publish_firmware_status("failed");
+        publish_firmware_update_progress("error", 0, "OTA gagal setelah beberapa percobaan.");
+        send_notification("error", "OTA gagal setelah beberapa percobaan.");
         delay(10000); // Delay lebih lama sebelum restart
         ESP.restart();
     }
