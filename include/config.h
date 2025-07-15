@@ -6,7 +6,7 @@
 // ==      FILE KONFIGURASI PROYEK JAMUR IOT               ==
 // ==========================================================
 
-#define FIRMWARE_VERSION "v27.4"
+#define FIRMWARE_VERSION "v27.5"
 
 // --- KONFIGURASI PERANGKAT KERAS LOKAL (Layar & Tombol) ---
 #define LCD_ADDRESS 0x27
@@ -146,3 +146,7 @@ const int MQTT_KEEP_ALIVE_SEC = 10;
 #define FIRMWARE_UPDATE_PAYLOAD_SIZE 128
 #define SCHEDULE_MSG_SIZE 128
 #define PUMP_MSG_SIZE 128 
+
+// --- INTERVAL RATE LIMIT EMAIL NOTIFIKASI (ms) ---
+#define EMAIL_MIN_INTERVAL_FIRMWARE_MS (6UL * 60 * 60 * 1000) // 6 jam
+#define EMAIL_MIN_INTERVAL_ALERT_MS    (1UL * 60 * 60 * 1000) // 1 jam 

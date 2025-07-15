@@ -612,6 +612,25 @@ void handle_main_logic() {
     }
 }
 
+// =============================
+// == EMAIL NOTIFICATION RATE LIMIT ==
+// =============================
+unsigned long lastEmailSent_firmware = 0;
+unsigned long lastEmailSent_warning = 0;
+unsigned long lastEmailSent_critical = 0;
+unsigned long lastEmailSent_normal = 0;
+
+
+bool can_send_email(unsigned long& lastSent, unsigned long minInterval) {
+    unsigned long now = millis();
+    if (now < lastSent) lastSent = 0; // handle millis overflow
+    if (now - lastSent >= minInterval) {
+        lastSent = now;
+        return true;
+    }
+    return false;
+}
+
 void run_humidity_control_logic(float humidity) {
     if (humidity < config.humidity_critical) {
         turn_pump_on("auto_critical");
@@ -622,7 +641,11 @@ void run_humidity_control_logic(float humidity) {
             data.message = "Kelembapan di bawah ambang batas kritis!";
             data.humidity = humidity;
             data.temperature = currentTemperature;
-            trigger_email_notification(data);
+            if (can_send_email(lastEmailSent_critical, EMAIL_MIN_INTERVAL_ALERT_MS)) {
+                trigger_email_notification(data);
+            } else {
+                Serial.println("[EMAIL] Critical alert diabaikan (rate limit).");
+            }
             lastNotifState = NOTIF_CRITICAL;
         }
     } else if (humidity < config.humidity_warning) {
@@ -633,7 +656,11 @@ void run_humidity_control_logic(float humidity) {
             data.message = "Kelembapan mendekati ambang batas.";
             data.humidity = humidity;
             data.temperature = currentTemperature;
-            trigger_email_notification(data);
+            if (can_send_email(lastEmailSent_warning, EMAIL_MIN_INTERVAL_ALERT_MS)) {
+                trigger_email_notification(data);
+            } else {
+                Serial.println("[EMAIL] Warning alert diabaikan (rate limit).");
+            }
             lastNotifState = NOTIF_WARNING;
         }
     } else {
@@ -644,7 +671,11 @@ void run_humidity_control_logic(float humidity) {
             data.message = "Kondisi kelembapan kembali normal.";
             data.humidity = humidity;
             data.temperature = currentTemperature;
-            trigger_email_notification(data);
+            if (can_send_email(lastEmailSent_normal, EMAIL_MIN_INTERVAL_ALERT_MS)) {
+                trigger_email_notification(data);
+            } else {
+                Serial.println("[EMAIL] Normal info diabaikan (rate limit).");
+            }
             lastNotifState = NOTIF_NORMAL;
         }
     }
@@ -878,7 +909,11 @@ void check_for_firmware_update() {
         data.message = "Firmware update tersedia!";
         data.version = newFirmware.version;
         data.release_notes = newFirmware.release_notes;
-        trigger_email_notification(data);
+        if (can_send_email(lastEmailSent_firmware, EMAIL_MIN_INTERVAL_FIRMWARE_MS)) {
+            trigger_email_notification(data);
+        } else {
+            Serial.println("[EMAIL] Firmware update diabaikan (rate limit).");
+        }
         newFirmware.version = ""; 
     }
 }
