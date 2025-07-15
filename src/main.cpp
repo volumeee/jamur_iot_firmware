@@ -246,15 +246,17 @@ void init_storage_and_wifi() {
         currentState = STATE_AP_MODE;
         start_ap_mode();
     } else {
+        bool ota_done = preferences.getBool("ota_done", false);
         String stored_ssid = preferences.getString("wifi_ssid", "");
         String stored_pass = preferences.getString("wifi_pass", "");
-        if (stored_ssid.length() == 0) {
-            Serial.println("SSID tidak ditemukan di Preferences, gunakan default dari secrets.h");
+        if (!ota_done) {
+            // Flash manual: pakai secrets.h
+            Serial.println("[BOOT] Deteksi flash manual, gunakan SSID/PASS dari secrets.h");
             strncpy(WIFI_SSID, SECRET_WIFI_SSID, sizeof(WIFI_SSID) - 1);
             WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
             strncpy(WIFI_PASSWORD, SECRET_WIFI_PASS, sizeof(WIFI_PASSWORD) - 1);
             WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
-            Serial.printf("Menggunakan SSID default: %s\n", WIFI_SSID);
+            Serial.printf("[BOOT] SSID default: %s\n", WIFI_SSID);
             if (strlen(WIFI_SSID) == 0) {
                 Serial.println("Default SSID kosong, masuk mode AP");
                 currentState = STATE_AP_MODE;
@@ -263,12 +265,29 @@ void init_storage_and_wifi() {
                 currentState = STATE_CONNECTING;
             }
         } else {
-            strncpy(WIFI_SSID, stored_ssid.c_str(), sizeof(WIFI_SSID) - 1);
-            WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
-            strncpy(WIFI_PASSWORD, stored_pass.c_str(), sizeof(WIFI_PASSWORD) - 1);
-            WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
-            Serial.printf("Menggunakan SSID dari Preferences: %s\n", WIFI_SSID);
-            currentState = STATE_CONNECTING;
+            // Sudah pernah OTA: pakai setup tersimpan
+            if (stored_ssid.length() == 0) {
+                Serial.println("SSID tidak ditemukan di Preferences, gunakan default dari secrets.h");
+                strncpy(WIFI_SSID, SECRET_WIFI_SSID, sizeof(WIFI_SSID) - 1);
+                WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
+                strncpy(WIFI_PASSWORD, SECRET_WIFI_PASS, sizeof(WIFI_PASSWORD) - 1);
+                WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
+                Serial.printf("Menggunakan SSID default: %s\n", WIFI_SSID);
+                if (strlen(WIFI_SSID) == 0) {
+                    Serial.println("Default SSID kosong, masuk mode AP");
+                    currentState = STATE_AP_MODE;
+                    start_ap_mode();
+                } else {
+                    currentState = STATE_CONNECTING;
+                }
+            } else {
+                strncpy(WIFI_SSID, stored_ssid.c_str(), sizeof(WIFI_SSID) - 1);
+                WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
+                strncpy(WIFI_PASSWORD, stored_pass.c_str(), sizeof(WIFI_PASSWORD) - 1);
+                WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
+                Serial.printf("Menggunakan SSID dari Preferences: %s\n", WIFI_SSID);
+                currentState = STATE_CONNECTING;
+            }
         }
     }
     preferences.end();
@@ -318,9 +337,15 @@ void loop() {
             publish_pump_countdown(pumpCountdownSeconds);
             pumpCountdownLastPublish = now;
         }
-        // Jika countdown sudah 0, matikan pompa
+        // Jika countdown sudah 0 tapi pompa masih ON (karena delay eksekusi), matikan pompa dan publish 0
         if (secondsLeft == 0 && isPumpOn) {
             turn_pump_off();
+        }
+    } else {
+        // Pastikan countdown 0 dipublish tepat saat pompa OFF
+        if (pumpCountdownSeconds != 0) {
+            pumpCountdownSeconds = 0;
+            publish_pump_countdown(0);
         }
     }
     switch (currentState) {
@@ -472,6 +497,7 @@ void handle_web_save() {
     prefs.begin("jamur-app", false);
     prefs.putString("wifi_ssid", new_ssid);
     prefs.putString("wifi_pass", new_pass);
+    prefs.putBool("ota_done", true); // Tandai sudah pernah OTA
     prefs.end();
     Serial.printf("Kredensial baru disimpan: SSID=%s\n", new_ssid.c_str());
     String successHtml = "<html><head><title>Berhasil - Jamur IoT</title>";
@@ -727,7 +753,11 @@ void turn_pump_off() {
     digitalWrite(PUMP_RELAY_PIN, LOW);
     mqttClient.publish(TOPICS.status, "{\"state\":\"idle\"}");
     send_notification("info", "Pump turned OFF.", currentHumidity, currentTemperature);
-    publish_pump_countdown(0); // Pastikan publish 0 tepat saat pompa mati
+    // Publish countdown selesai (0 detik) hanya jika belum 0
+    if (pumpCountdownSeconds != 0) {
+        pumpCountdownSeconds = 0;
+        publish_pump_countdown(0);
+    }
 }
 
 // =================================================================
