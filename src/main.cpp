@@ -320,6 +320,12 @@ void setup() {
     init_hardware();
     load_config();
     init_storage_and_wifi();
+    // Pastikan countdown 0 dan control OFF dipublish saat boot jika pompa OFF
+    if (!isPumpOn) {
+        pumpCountdownSeconds = 0;
+        publish_pump_countdown(0);
+        mqttClient.publish(TOPICS.pump_control, "OFF", true);
+    }
 }
 
 // =================================================================
@@ -753,6 +759,8 @@ void turn_pump_off() {
     digitalWrite(PUMP_RELAY_PIN, LOW);
     mqttClient.publish(TOPICS.status, "{\"state\":\"idle\"}");
     send_notification("info", "Pump turned OFF.", currentHumidity, currentTemperature);
+    // Publish ke control (sinkronisasi status pompa ke MQTT control)
+    mqttClient.publish(TOPICS.pump_control, "OFF", true); // Retained agar client tahu status terakhir
     // Publish countdown selesai (0 detik) hanya jika belum 0
     if (pumpCountdownSeconds != 0) {
         pumpCountdownSeconds = 0;
