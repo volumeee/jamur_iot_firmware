@@ -52,6 +52,8 @@ NotifState lastNotifState = NOTIF_NORMAL;
 unsigned long lastSpeedtestTime = 0;
 unsigned long lastWifiReconnectTime = 0;
 const unsigned long WIFI_RECONNECT_INTERVAL = WIFI_RECONNECT_DELAY; // 10 detik
+unsigned long pumpCountdownLastPublish = 0;
+int pumpCountdownSeconds = 0;
 
 // Fungsi untuk cek dan reconnect WiFi jika terputus
 void check_and_reconnect_wifi() {
@@ -163,6 +165,13 @@ void run_humidity_control_logic(float humidity);
 void run_scheduled_control(float humidity);
 void turn_pump_on(const char* reason);
 void turn_pump_off();
+
+// Fungsi untuk publish countdown ke MQTT
+void publish_pump_countdown(int seconds) {
+    char payload[32];
+    snprintf(payload, sizeof(payload), "{\"countdown\":%d}", seconds);
+    mqttClient.publish(TOPICS.pump_countdown, payload, true); // Retained agar client tahu status terakhir
+}
 
 // =================================================================
 //   FUNGSI KOMUNIKASI, MQTT, NOTIFIKASI, UTILITAS
@@ -299,6 +308,17 @@ void setup() {
 // =================================================================
 void loop() {
     check_buttons();
+    // Publish countdown setiap detik saat pompa ON
+    if (isPumpOn) {
+        unsigned long now = millis();
+        int secondsLeft = (pumpStopTime > now) ? (int)((pumpStopTime - now) / 1000) : 0;
+        if (secondsLeft < 0) secondsLeft = 0;
+        if (secondsLeft != pumpCountdownSeconds || now - pumpCountdownLastPublish >= 1000) {
+            pumpCountdownSeconds = secondsLeft;
+            publish_pump_countdown(pumpCountdownSeconds);
+            pumpCountdownLastPublish = now;
+        }
+    }
     switch (currentState) {
         case STATE_AP_MODE:
             server.handleClient();
@@ -656,19 +676,22 @@ void turn_pump_on(const char* reason) {
     if (isPumpOn) return;
     isPumpOn = true;
     pumpStopTime = millis() + PUMP_DURATION_MS;
+    pumpCountdownSeconds = PUMP_DURATION_MS / 1000;
+    pumpCountdownLastPublish = 0;
     digitalWrite(PUMP_RELAY_PIN, HIGH);
     mqttClient.publish(TOPICS.status, "{\"state\":\"pumping\"}");
     char msg[PUMP_MSG_SIZE];
     snprintf(msg, PUMP_MSG_SIZE, "Pump turned ON (%s).", reason);
     send_notification("info", msg, currentHumidity, currentTemperature);
+    publish_pump_countdown(pumpCountdownSeconds);
 }
-
 void turn_pump_off() {
     if (!isPumpOn) return;
     isPumpOn = false;
     digitalWrite(PUMP_RELAY_PIN, LOW);
     mqttClient.publish(TOPICS.status, "{\"state\":\"idle\"}");
     send_notification("info", "Pump turned OFF.", currentHumidity, currentTemperature);
+    publish_pump_countdown(0);
 }
 
 // =================================================================
