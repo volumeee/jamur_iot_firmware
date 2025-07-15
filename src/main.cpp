@@ -311,12 +311,16 @@ void loop() {
     // Publish countdown setiap detik saat pompa ON
     if (isPumpOn) {
         unsigned long now = millis();
-        int secondsLeft = (pumpStopTime > now) ? (int)((pumpStopTime - now) / 1000) : 0;
+        int secondsLeft = (pumpStopTime > now) ? (int)((pumpStopTime - now + 999) / 1000) : 0; // pembulatan ke atas
         if (secondsLeft < 0) secondsLeft = 0;
-        if (secondsLeft != pumpCountdownSeconds || now - pumpCountdownLastPublish >= 1000) {
+        if (secondsLeft != pumpCountdownSeconds && now - pumpCountdownLastPublish >= 900) {
             pumpCountdownSeconds = secondsLeft;
             publish_pump_countdown(pumpCountdownSeconds);
             pumpCountdownLastPublish = now;
+        }
+        // Jika countdown sudah 0, matikan pompa
+        if (secondsLeft == 0 && isPumpOn) {
+            turn_pump_off();
         }
     }
     switch (currentState) {
@@ -707,7 +711,7 @@ void turn_pump_on(const char* reason) {
     if (isPumpOn) return;
     isPumpOn = true;
     pumpStopTime = millis() + PUMP_DURATION_MS;
-    pumpCountdownSeconds = PUMP_DURATION_MS / 1000;
+    pumpCountdownSeconds = (PUMP_DURATION_MS + 999) / 1000; // pembulatan ke atas
     pumpCountdownLastPublish = 0;
     digitalWrite(PUMP_RELAY_PIN, HIGH);
     mqttClient.publish(TOPICS.status, "{\"state\":\"pumping\"}");
@@ -716,13 +720,14 @@ void turn_pump_on(const char* reason) {
     send_notification("info", msg, currentHumidity, currentTemperature);
     publish_pump_countdown(pumpCountdownSeconds);
 }
+
 void turn_pump_off() {
     if (!isPumpOn) return;
     isPumpOn = false;
     digitalWrite(PUMP_RELAY_PIN, LOW);
     mqttClient.publish(TOPICS.status, "{\"state\":\"idle\"}");
     send_notification("info", "Pump turned OFF.", currentHumidity, currentTemperature);
-    publish_pump_countdown(0);
+    publish_pump_countdown(0); // Pastikan publish 0 tepat saat pompa mati
 }
 
 // =================================================================
