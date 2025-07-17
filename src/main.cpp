@@ -247,11 +247,16 @@ void init_storage_and_wifi() {
         start_ap_mode();
     } else {
         bool ota_done = preferences.getBool("ota_done", false);
+        if (!ota_done) {
+            // Flash manual: reset Preferences agar benar-benar fresh
+            Serial.println("[BOOT] Deteksi flash manual, reset Preferences dan gunakan SSID/PASS dari secrets.h");
+            preferences.clear();
+            preferences.end();
+            preferences.begin("jamur-app", false);
+        }
         String stored_ssid = preferences.getString("wifi_ssid", "");
         String stored_pass = preferences.getString("wifi_pass", "");
         if (!ota_done) {
-            // Flash manual: pakai secrets.h
-            Serial.println("[BOOT] Deteksi flash manual, gunakan SSID/PASS dari secrets.h");
             strncpy(WIFI_SSID, SECRET_WIFI_SSID, sizeof(WIFI_SSID) - 1);
             WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
             strncpy(WIFI_PASSWORD, SECRET_WIFI_PASS, sizeof(WIFI_PASSWORD) - 1);
@@ -266,27 +271,27 @@ void init_storage_and_wifi() {
             }
         } else {
             // Sudah pernah OTA: pakai setup tersimpan
-        if (stored_ssid.length() == 0) {
-            Serial.println("SSID tidak ditemukan di Preferences, gunakan default dari secrets.h");
-            strncpy(WIFI_SSID, SECRET_WIFI_SSID, sizeof(WIFI_SSID) - 1);
-            WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
-            strncpy(WIFI_PASSWORD, SECRET_WIFI_PASS, sizeof(WIFI_PASSWORD) - 1);
-            WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
-            Serial.printf("Menggunakan SSID default: %s\n", WIFI_SSID);
-            if (strlen(WIFI_SSID) == 0) {
-                Serial.println("Default SSID kosong, masuk mode AP");
-                currentState = STATE_AP_MODE;
-                start_ap_mode();
+            if (stored_ssid.length() == 0) {
+                Serial.println("SSID tidak ditemukan di Preferences, gunakan default dari secrets.h");
+                strncpy(WIFI_SSID, SECRET_WIFI_SSID, sizeof(WIFI_SSID) - 1);
+                WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
+                strncpy(WIFI_PASSWORD, SECRET_WIFI_PASS, sizeof(WIFI_PASSWORD) - 1);
+                WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
+                Serial.printf("Menggunakan SSID default: %s\n", WIFI_SSID);
+                if (strlen(WIFI_SSID) == 0) {
+                    Serial.println("Default SSID kosong, masuk mode AP");
+                    currentState = STATE_AP_MODE;
+                    start_ap_mode();
+                } else {
+                    currentState = STATE_CONNECTING;
+                }
             } else {
+                strncpy(WIFI_SSID, stored_ssid.c_str(), sizeof(WIFI_SSID) - 1);
+                WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
+                strncpy(WIFI_PASSWORD, stored_pass.c_str(), sizeof(WIFI_PASSWORD) - 1);
+                WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
+                Serial.printf("Menggunakan SSID dari Preferences: %s\n", WIFI_SSID);
                 currentState = STATE_CONNECTING;
-            }
-        } else {
-            strncpy(WIFI_SSID, stored_ssid.c_str(), sizeof(WIFI_SSID) - 1);
-            WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
-            strncpy(WIFI_PASSWORD, stored_pass.c_str(), sizeof(WIFI_PASSWORD) - 1);
-            WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
-            Serial.printf("Menggunakan SSID dari Preferences: %s\n", WIFI_SSID);
-            currentState = STATE_CONNECTING;
             }
         }
     }
