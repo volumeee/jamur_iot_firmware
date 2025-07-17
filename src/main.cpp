@@ -266,27 +266,27 @@ void init_storage_and_wifi() {
             }
         } else {
             // Sudah pernah OTA: pakai setup tersimpan
-            if (stored_ssid.length() == 0) {
-                Serial.println("SSID tidak ditemukan di Preferences, gunakan default dari secrets.h");
-                strncpy(WIFI_SSID, SECRET_WIFI_SSID, sizeof(WIFI_SSID) - 1);
-                WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
-                strncpy(WIFI_PASSWORD, SECRET_WIFI_PASS, sizeof(WIFI_PASSWORD) - 1);
-                WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
-                Serial.printf("Menggunakan SSID default: %s\n", WIFI_SSID);
-                if (strlen(WIFI_SSID) == 0) {
-                    Serial.println("Default SSID kosong, masuk mode AP");
-                    currentState = STATE_AP_MODE;
-                    start_ap_mode();
-                } else {
-                    currentState = STATE_CONNECTING;
-                }
+        if (stored_ssid.length() == 0) {
+            Serial.println("SSID tidak ditemukan di Preferences, gunakan default dari secrets.h");
+            strncpy(WIFI_SSID, SECRET_WIFI_SSID, sizeof(WIFI_SSID) - 1);
+            WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
+            strncpy(WIFI_PASSWORD, SECRET_WIFI_PASS, sizeof(WIFI_PASSWORD) - 1);
+            WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
+            Serial.printf("Menggunakan SSID default: %s\n", WIFI_SSID);
+            if (strlen(WIFI_SSID) == 0) {
+                Serial.println("Default SSID kosong, masuk mode AP");
+                currentState = STATE_AP_MODE;
+                start_ap_mode();
             } else {
-                strncpy(WIFI_SSID, stored_ssid.c_str(), sizeof(WIFI_SSID) - 1);
-                WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
-                strncpy(WIFI_PASSWORD, stored_pass.c_str(), sizeof(WIFI_PASSWORD) - 1);
-                WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
-                Serial.printf("Menggunakan SSID dari Preferences: %s\n", WIFI_SSID);
                 currentState = STATE_CONNECTING;
+            }
+        } else {
+            strncpy(WIFI_SSID, stored_ssid.c_str(), sizeof(WIFI_SSID) - 1);
+            WIFI_SSID[sizeof(WIFI_SSID) - 1] = '\0';
+            strncpy(WIFI_PASSWORD, stored_pass.c_str(), sizeof(WIFI_PASSWORD) - 1);
+            WIFI_PASSWORD[sizeof(WIFI_PASSWORD) - 1] = '\0';
+            Serial.printf("Menggunakan SSID dari Preferences: %s\n", WIFI_SSID);
+            currentState = STATE_CONNECTING;
             }
         }
     }
@@ -333,22 +333,21 @@ void setup() {
 // =================================================================
 void loop() {
     check_buttons();
-    // Publish countdown setiap detik saat pompa ON
+    // Publish countdown setiap 1 detik saat pompa ON, urut dan tidak skip
+    static unsigned long lastCountdownMillis = 0;
     if (isPumpOn) {
         unsigned long now = millis();
-        int secondsLeft = (pumpStopTime > now) ? (int)((pumpStopTime - now + 999) / 1000) : 0; // pembulatan ke atas
-        if (secondsLeft < 0) secondsLeft = 0;
-        if (secondsLeft != pumpCountdownSeconds && now - pumpCountdownLastPublish >= 900) {
+        if (now - lastCountdownMillis >= 1000 || lastCountdownMillis == 0) {
+            int secondsLeft = (pumpStopTime > now) ? (int)((pumpStopTime - now) / 1000) : 0; // pembulatan ke bawah
+            if (secondsLeft < 0) secondsLeft = 0;
             pumpCountdownSeconds = secondsLeft;
             publish_pump_countdown(pumpCountdownSeconds);
-            pumpCountdownLastPublish = now;
-        }
-        // Jika countdown sudah 0 tapi pompa masih ON (karena delay eksekusi), matikan pompa dan publish 0
-        if (secondsLeft == 0 && isPumpOn) {
-            turn_pump_off();
+            lastCountdownMillis = now;
+            if (secondsLeft == 0) {
+                turn_pump_off();
+            }
         }
     } else {
-        // Pastikan countdown 0 dipublish tepat saat pompa OFF
         if (pumpCountdownSeconds != 0) {
             pumpCountdownSeconds = 0;
             publish_pump_countdown(0);
@@ -678,7 +677,7 @@ void run_humidity_control_logic(float humidity) {
             data.humidity = humidity;
             data.temperature = currentTemperature;
             if (can_send_email(lastEmailSent_critical, EMAIL_MIN_INTERVAL_ALERT_MS)) {
-                trigger_email_notification(data);
+            trigger_email_notification(data);
             } else {
                 Serial.println("[EMAIL] Critical alert diabaikan (rate limit).");
             }
@@ -693,7 +692,7 @@ void run_humidity_control_logic(float humidity) {
             data.humidity = humidity;
             data.temperature = currentTemperature;
             if (can_send_email(lastEmailSent_warning, EMAIL_MIN_INTERVAL_ALERT_MS)) {
-                trigger_email_notification(data);
+            trigger_email_notification(data);
             } else {
                 Serial.println("[EMAIL] Warning alert diabaikan (rate limit).");
             }
@@ -708,7 +707,7 @@ void run_humidity_control_logic(float humidity) {
             data.humidity = humidity;
             data.temperature = currentTemperature;
             if (can_send_email(lastEmailSent_normal, EMAIL_MIN_INTERVAL_ALERT_MS)) {
-                trigger_email_notification(data);
+            trigger_email_notification(data);
             } else {
                 Serial.println("[EMAIL] Normal info diabaikan (rate limit).");
             }
@@ -953,7 +952,7 @@ void check_for_firmware_update() {
         data.version = newFirmware.version;
         data.release_notes = newFirmware.release_notes;
         if (can_send_email(lastEmailSent_firmware, EMAIL_MIN_INTERVAL_FIRMWARE_MS)) {
-            trigger_email_notification(data);
+        trigger_email_notification(data);
         } else {
             Serial.println("[EMAIL] Firmware update diabaikan (rate limit).");
         }
