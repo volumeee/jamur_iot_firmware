@@ -79,7 +79,7 @@ void check_and_reconnect_wifi() {
     }
 }
 
-bool publish_with_retry(const char* topic, const char* payload, bool retained = false, int retry = NOTIF_RETRY_COUNT, int delayMs = NOTIF_RETRY_DELAY_MS) {
+bool publish_with_retry(const char* topic, const char* payload, bool retained, int retry, int delayMs) {
     for (int i = 0; i < retry; ++i) {
         if (mqttClient.publish(topic, payload, retained)) {
             return true;
@@ -89,7 +89,7 @@ bool publish_with_retry(const char* topic, const char* payload, bool retained = 
     return false;
 }
 
-void send_notification(const char* type, const char* message, float humidity = -1, float temperature = -1) {
+void send_notification(const char* type, const char* message, float humidity, float temperature) {
     char notifPayload[NOTIF_PAYLOAD_SIZE];
     if (humidity >= 0 && temperature >= 0) {
         snprintf(notifPayload, NOTIF_PAYLOAD_SIZE,
@@ -99,7 +99,7 @@ void send_notification(const char* type, const char* message, float humidity = -
         snprintf(notifPayload, NOTIF_PAYLOAD_SIZE,
             "{\"type\":\"%s\", \"message\":\"%s\"}", type, message);
     }
-    publish_with_retry(TOPICS.notification, notifPayload);
+    publish_with_retry(TOPICS.notification, notifPayload, false, NOTIF_RETRY_COUNT, NOTIF_RETRY_DELAY_MS);
 }
 
 // =================================================================
@@ -191,16 +191,16 @@ void check_for_firmware_update();
 
 // OTA Update Functions
 void perform_ota_update(String url);
-void handle_ota_error(const char* lcdMsg, const char* logMsg, int code = 0);
+void handle_ota_error(const char* lcdMsg, const char* logMsg, int code);
 
 // Utility Functions
 void lcd_show_message(const char* line1, const char* line2);
 void pause_and_restart(unsigned long ms);
 void publish_online_status();
 void publish_speedtest(float ping_ms, float download_mbps, float upload_mbps);
-float speedtest_ping_ms(const char* host = "8.8.8.8", uint16_t port = 53, uint8_t count = 4);
-float speedtest_download_mbps(const char* url = SPEEDTEST_DOWNLOAD_URL, size_t test_size = SPEEDTEST_DOWNLOAD_SIZE);
-float speedtest_upload_mbps(const char* url = SPEEDTEST_UPLOAD_URL, size_t test_size = SPEEDTEST_UPLOAD_SIZE);
+float speedtest_ping_ms(const char* host, uint16_t port, uint8_t count);
+float speedtest_download_mbps(const char* url, size_t test_size);
+float speedtest_upload_mbps(const char* url, size_t test_size);
 void run_and_publish_speedtest();
 
 // =================================================================
@@ -1047,7 +1047,7 @@ void publish_speedtest(float ping_ms, float download_mbps, float upload_mbps) {
 //   OTA UPDATE FUNCTIONS
 // =================================================================
 
-void handle_ota_error(const char* lcdMsg, const char* logMsg, int code = 0) {
+void handle_ota_error(const char* lcdMsg, const char* logMsg, int code) {
     lcd_show_message("Update Failed!", "Check Serial Mon.");
     if (code)
         Serial.printf(logMsg, code);
@@ -1173,7 +1173,7 @@ void perform_ota_update(String url) {
 //   SPEEDTEST FUNCTIONS
 // =================================================================
 
-float speedtest_ping_ms(const char* host = "8.8.8.8", uint16_t port = 53, uint8_t count = 4) {
+float speedtest_ping_ms(const char* host, uint16_t port, uint8_t count) {
     WiFiClient client;
     unsigned long total = 0;
     int success = 0;
@@ -1191,7 +1191,7 @@ float speedtest_ping_ms(const char* host = "8.8.8.8", uint16_t port = 53, uint8_
     return (success > 0) ? (float)total / success : -1.0f;
 }
 
-float speedtest_download_mbps(const char* url = SPEEDTEST_DOWNLOAD_URL, size_t test_size = SPEEDTEST_DOWNLOAD_SIZE) {
+float speedtest_download_mbps(const char* url, size_t test_size) {
     HTTPClient http;
     http.setTimeout(OTA_HTTP_TIMEOUT_MS);
     http.begin(url);
@@ -1217,7 +1217,7 @@ float speedtest_download_mbps(const char* url = SPEEDTEST_DOWNLOAD_URL, size_t t
     return mbps;
 }
 
-float speedtest_upload_mbps(const char* url = SPEEDTEST_UPLOAD_URL, size_t test_size = SPEEDTEST_UPLOAD_SIZE) {
+float speedtest_upload_mbps(const char* url, size_t test_size) {
     HTTPClient http;
     http.setTimeout(OTA_HTTP_TIMEOUT_MS);
     http.begin(url);
@@ -1238,9 +1238,9 @@ float speedtest_upload_mbps(const char* url = SPEEDTEST_UPLOAD_URL, size_t test_
 }
 
 void run_and_publish_speedtest() {
-    float ping = speedtest_ping_ms();
-    float download = speedtest_download_mbps();
-    float upload = speedtest_upload_mbps();
+    float ping = speedtest_ping_ms("8.8.8.8", 53, 4);
+    float download = speedtest_download_mbps(SPEEDTEST_DOWNLOAD_URL, SPEEDTEST_DOWNLOAD_SIZE);
+    float upload = speedtest_upload_mbps(SPEEDTEST_UPLOAD_URL, SPEEDTEST_UPLOAD_SIZE);
     publish_speedtest(ping, download, upload);
     Serial.printf("Speedtest: ping=%.2f ms, download=%.2f Mbps, upload=%.2f Mbps\n", ping, download, upload);
 }
