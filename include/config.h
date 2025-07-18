@@ -7,7 +7,7 @@
 // ==========================================================
 
 // ---------------- FIRMWARE VERSION ----------------------
-#define FIRMWARE_VERSION "v28.2"
+#define FIRMWARE_VERSION "v28.3"
 
 // ---------------- HARDWARE CONFIG -----------------------
 #define LCD_ADDRESS 0x27
